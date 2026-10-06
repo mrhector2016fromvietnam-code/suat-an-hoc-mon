@@ -1,7 +1,9 @@
 import React, { useState, useEffect } from 'react';
 import { Copy, Check, CheckSquare, Square, Edit3, ChevronDown, Sparkles, Building2, Utensils } from 'lucide-react';
 import { VendorPortionRow, DayShiftMenu, MealShift } from '../types/report';
-import { getMenuForVendorAndShift } from '../data/vinhomesMenuData';
+import { getMenuForVendorAndShift, cleanDishName } from '../data/vinhomesMenuData';
+
+export { cleanDishName };
 
 interface ReportTextOutputProps {
   shift: string;
@@ -48,17 +50,17 @@ export const ReportTextOutput: React.FC<ReportTextOutputProps> = ({
   );
 
   // Local editable fields
-  const [meatText, setMeatText] = useState(activeEditingMenu.meatDishes.join(', '));
-  const [meatDessertText, setMeatDessertText] = useState(activeEditingMenu.meatDessert);
-  const [vegText, setVegText] = useState(activeEditingMenu.vegDishes.join(', '));
-  const [vegDessertText, setVegDessertText] = useState(activeEditingMenu.vegDessert);
+  const [meatText, setMeatText] = useState(activeEditingMenu.meatDishes.map(cleanDishName).join(', '));
+  const [meatDessertText, setMeatDessertText] = useState(cleanDishName(activeEditingMenu.meatDessert));
+  const [vegText, setVegText] = useState(activeEditingMenu.vegDishes.map(cleanDishName).join(', '));
+  const [vegDessertText, setVegDessertText] = useState(cleanDishName(activeEditingMenu.vegDessert));
 
   // Sync editable fields when active vendor or shift changes
   useEffect(() => {
-    setMeatText(activeEditingMenu.meatDishes.join(', '));
-    setMeatDessertText(activeEditingMenu.meatDessert);
-    setVegText(activeEditingMenu.vegDishes.join(', '));
-    setVegDessertText(activeEditingMenu.vegDessert);
+    setMeatText(activeEditingMenu.meatDishes.map(cleanDishName).join(', '));
+    setMeatDessertText(cleanDishName(activeEditingMenu.meatDessert));
+    setVegText(activeEditingMenu.vegDishes.map(cleanDishName).join(', '));
+    setVegDessertText(cleanDishName(activeEditingMenu.vegDessert));
   }, [activeEditingVendorId, dayOfWeek, shift, menusList]);
 
   // Handle saving edits for the specific vendor
@@ -111,8 +113,10 @@ export const ReportTextOutput: React.FC<ReportTextOutputProps> = ({
       shift as MealShift
     );
 
-    const meatDishesStr = vendorMenu.meatDishes.join(', ');
-    const vegDishesStr = vendorMenu.vegDishes.join(', ');
+    const meatDishesStr = vendorMenu.meatDishes.map(cleanDishName).filter(Boolean).join(', ');
+    const vegDishesStr = vendorMenu.vegDishes.map(cleanDishName).filter(Boolean).join(', ');
+    const meatDessertClean = cleanDishName(vendorMenu.meatDessert);
+    const vegDessertClean = cleanDishName(vendorMenu.vegDessert);
 
     return `Báo cáo Anh/Chị: Khu bếp / nhà ăn phục vụ suất ăn ${shiftLower} ngày ${dateStr}
 • Tổng cộng: ${vendorTotal} suất
@@ -122,9 +126,9 @@ TĐ 8: ${td8Str}
 TĐ 11.1: ${td11_1Str}
 TĐ 11.3: ${td11_3Str}
 • Suất ăn mặn: ${meatDishesStr}
-• Tráng miệng mặn: ${vendorMenu.meatDessert}
+• Tráng miệng mặn: ${meatDessertClean}
 • Suất ăn chay: ${vegDishesStr}
-• Tráng miệng chay: ${vendorMenu.vegDessert}
+• Tráng miệng chay: ${vegDessertClean}
 Cân định lượng: Đạt`;
   };
 
@@ -490,7 +494,7 @@ ${blocks.join('\n\n----------------------------------------\n\n')}`;
                   <span className="w-5 h-5 rounded-full bg-neutral-200/80 text-neutral-700 text-[10px] font-mono font-bold flex items-center justify-center shrink-0">
                     {idx + 1}
                   </span>
-                  <span className="font-medium">{dish}</span>
+                  <span className="font-medium">{cleanDishName(dish)}</span>
                 </div>
               ))}
               {currentDisplayVendorMenu.meatDessert && (
@@ -498,7 +502,7 @@ ${blocks.join('\n\n----------------------------------------\n\n')}`;
                   <span className="w-5 h-5 rounded-full bg-emerald-100 text-emerald-800 text-[10px] font-mono font-bold flex items-center justify-center shrink-0">
                     TM
                   </span>
-                  <span>Tráng miệng mặn: <strong>{currentDisplayVendorMenu.meatDessert}</strong></span>
+                  <span>Tráng miệng mặn: <strong>{cleanDishName(currentDisplayVendorMenu.meatDessert)}</strong></span>
                 </div>
               )}
             </div>
@@ -520,7 +524,7 @@ ${blocks.join('\n\n----------------------------------------\n\n')}`;
                   <span className="w-5 h-5 rounded-full bg-neutral-200/80 text-neutral-700 text-[10px] font-mono font-bold flex items-center justify-center shrink-0">
                     {idx + 1}
                   </span>
-                  <span className="font-medium">{dish}</span>
+                  <span className="font-medium">{cleanDishName(dish)}</span>
                 </div>
               ))}
               {currentDisplayVendorMenu.vegDessert && (
@@ -528,7 +532,7 @@ ${blocks.join('\n\n----------------------------------------\n\n')}`;
                   <span className="w-5 h-5 rounded-full bg-amber-100 text-amber-900 text-[10px] font-mono font-bold flex items-center justify-center shrink-0">
                     TM
                   </span>
-                  <span>Tráng miệng chay: <strong className="text-emerald-700">{currentDisplayVendorMenu.vegDessert}</strong></span>
+                  <span>Tráng miệng chay: <strong className="text-emerald-700">{cleanDishName(currentDisplayVendorMenu.vegDessert)}</strong></span>
                 </div>
               )}
             </div>

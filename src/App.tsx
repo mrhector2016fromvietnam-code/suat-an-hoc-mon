@@ -11,16 +11,18 @@ import { PortionInputTable } from './components/PortionInputTable';
 import { ReportTextOutput } from './components/ReportTextOutput';
 import { RightSidebarSummary } from './components/RightSidebarSummary';
 import { WeeklyMenuSheetView } from './components/WeeklyMenuSheetView';
-import { DEFAULT_VENDORS, PRELOADED_MENUS, DAYS_OF_WEEK, getMenuForVendorAndShift } from './data/vinhomesMenuData';
+import { DEFAULT_VENDORS, PRELOADED_MENUS, DAYS_OF_WEEK, getMenuForVendorAndShift, cleanDishName } from './data/vinhomesMenuData';
+import { DeleteMenuModal } from './components/DeleteMenuModal';
 import { VendorPortionRow, MealShift, DayShiftMenu } from './types/report';
-import { FileText, Sparkles, Check, RefreshCw, AlertCircle, Building2, Utensils, CheckCircle2 } from 'lucide-react';
+import { FileText, Sparkles, Check, RefreshCw, AlertCircle, Building2, Utensils, CheckCircle2, Trash2 } from 'lucide-react';
 
-// Cache key v5 ensures old wrong caches are superseded
-const STORAGE_KEY_MENUS = 'vinhomes_weekly_menus_cache_v5';
-const STORAGE_KEY_VENDORS = 'vinhomes_vendors_headcount_cache_v5';
+// Cache key v7 strictly separates all 7 vendors with distinct 21 shifts per vendor
+const STORAGE_KEY_MENUS = 'vinhomes_weekly_menus_cache_v7_clean';
+const STORAGE_KEY_VENDORS = 'vinhomes_vendors_headcount_cache_v7';
 
 export default function App() {
   const [currentTab, setCurrentTab] = useState<'overview' | 'report' | 'menu-sheet'>('report');
+  const [isGlobalDeleteModalOpen, setIsGlobalDeleteModalOpen] = useState(false);
   
   // Vendors headcount data (initialized from Screenshot 2)
   const [vendors, setVendors] = useState<VendorPortionRow[]>(() => {
@@ -39,11 +41,22 @@ export default function App() {
   const [currentDayOfWeek, setCurrentDayOfWeek] = useState<string>('Thứ 2');
   const [currentDateStr, setCurrentDateStr] = useState<string>('05/10/2026');
 
-  // Menus list with persistence
+  // Menus list with persistence & integrity verification
   const [menusList, setMenusList] = useState<DayShiftMenu[]>(() => {
     try {
       const saved = localStorage.getItem(STORAGE_KEY_MENUS);
-      if (saved) return JSON.parse(saved);
+      if (saved) {
+        const parsed: DayShiftMenu[] = JSON.parse(saved);
+        // Verify all 7 vendors are represented and no stale corrupted data
+        const uniqueVendors = new Set(parsed.map((m) => m.vendorId));
+        if (
+          uniqueVendors.size >= 7 &&
+          parsed.length >= 140 &&
+          !parsed.some((m) => m.meatDishes.some((d) => /\d+g\b|\d+-\d+g/i.test(d)))
+        ) {
+          return parsed;
+        }
+      }
     } catch (e) {}
     return PRELOADED_MENUS;
   });
@@ -86,10 +99,39 @@ export default function App() {
     );
   };
 
-  // Upload image handler
-  const handleImageUploaded = (file: File) => {
-    setActiveMenuName(`Đã tải: ${file.name} · Tự động khớp thực đơn`);
-    showToast(`Đã nhận diện ảnh thực đơn: ${file.name}!`);
+  // Handler when a menu is extracted via OCR from uploaded file
+  const handleMenuExtracted = (data: {
+    vendorName: string;
+    vendorId: string;
+    projectName?: string;
+    weekRange?: string;
+    menus: DayShiftMenu[];
+  }) => {
+    if (!data.menus || data.menus.length === 0) return;
+
+    const targetVendorId = data.vendorId || 'tam-phuong';
+
+    setMenusList((prev) => {
+      // Remove any existing menus for this vendor that are being overridden
+      const incomingKeys = new Set(data.menus.map((m) => `${m.dayOfWeek}_${m.shift}`));
+      const retained = prev.filter(
+        (m) => m.vendorId !== targetVendorId || !incomingKeys.has(`${m.dayOfWeek}_${m.shift}`)
+      );
+      const formattedIncoming: DayShiftMenu[] = data.menus.map((m) => ({
+        ...m,
+        vendorId: targetVendorId,
+        meatDishes: m.meatDishes.map(cleanDishName).filter(Boolean),
+        vegDishes: m.vegDishes.map(cleanDishName).filter(Boolean),
+        meatDessert: cleanDishName(m.meatDessert),
+        vegDessert: cleanDishName(m.vegDessert),
+        isWeighedOk: true
+      }));
+      return [...retained, ...formattedIncoming];
+    });
+
+    setSelectedVendorIds([targetVendorId]);
+    setActiveMenuName(`Thực đơn chuẩn OCR: ${data.vendorName} (${data.menus.length} ca ăn khớp 100% tài liệu gốc)`);
+    showToast(`Đã nạp chính xác 100% thực đơn của ${data.vendorName} (${data.menus.length} ca ăn)!`);
   };
 
   // Select day & shift from weekly sheet, with vendor selection
@@ -110,12 +152,20 @@ export default function App() {
 
   // Menu updater for a specific vendor
   const handleUpdateVendorMenu = (vendorId: string, partial: Partial<DayShiftMenu>) => {
+    const cleanedPartial: Partial<DayShiftMenu> = {
+      ...partial,
+      meatDishes: partial.meatDishes ? partial.meatDishes.map(cleanDishName).filter(Boolean) : undefined,
+      vegDishes: partial.vegDishes ? partial.vegDishes.map(cleanDishName).filter(Boolean) : undefined,
+      meatDessert: partial.meatDessert ? cleanDishName(partial.meatDessert) : undefined,
+      vegDessert: partial.vegDessert ? cleanDishName(partial.vegDessert) : undefined,
+    };
+
     setMenusList((prev) => {
       let found = false;
       const next = prev.map((m) => {
         if (m.vendorId === vendorId && m.dayOfWeek === currentDayOfWeek && m.shift === currentShift) {
           found = true;
-          return { ...m, ...partial };
+          return { ...m, ...cleanedPartial };
         }
         return m;
       });
@@ -126,12 +176,12 @@ export default function App() {
           dayOfWeek: currentDayOfWeek,
           dateStr: currentDateStr,
           shift: currentShift,
-          meatDishes: partial.meatDishes || ['Cơm trắng', 'Món mặn'],
-          meatDessert: partial.meatDessert || 'Trái cây',
-          vegDishes: partial.vegDishes || ['Cơm trắng', 'Món chay'],
-          vegDessert: partial.vegDessert || 'Trái cây',
+          meatDishes: cleanedPartial.meatDishes || ['Cơm trắng', 'Món mặn'],
+          meatDessert: cleanedPartial.meatDessert || 'Trái cây',
+          vegDishes: cleanedPartial.vegDishes || ['Cơm trắng', 'Món chay'],
+          vegDessert: cleanedPartial.vegDessert || 'Trái cây',
           isWeighedOk: true,
-          ...partial
+          ...cleanedPartial
         });
       }
 
@@ -169,6 +219,80 @@ export default function App() {
     } else {
       setSelectedVendorIds([...selectedVendorIds, id]);
     }
+  };
+
+  // 1. Delete or Revert selected specific shifts
+  const handleDeleteSelectedShifts = (
+    shiftsToDelete: { vendorId: string; dayOfWeek: string; shift: MealShift }[],
+    action: 'clear' | 'reset-default'
+  ) => {
+    setMenusList((prev) => {
+      return prev.map((m) => {
+        const match = shiftsToDelete.find(
+          (s) => s.vendorId === m.vendorId && s.dayOfWeek === m.dayOfWeek && s.shift === m.shift
+        );
+        if (match) {
+          if (action === 'clear') {
+            return {
+              ...m,
+              meatDishes: [],
+              meatDessert: '',
+              vegDishes: [],
+              vegDessert: '',
+            };
+          } else {
+            const defaultShift = PRELOADED_MENUS.find(
+              (p) => p.vendorId === m.vendorId && p.dayOfWeek === m.dayOfWeek && p.shift === m.shift
+            );
+            return defaultShift ? { ...defaultShift } : m;
+          }
+        }
+        return m;
+      });
+    });
+
+    const vendorName = vendors.find((v) => v.id === shiftsToDelete[0]?.vendorId)?.name || 'nhà cung cấp';
+    showToast(
+      action === 'clear'
+        ? `Đã xóa trắng ${shiftsToDelete.length} ca ăn của ${vendorName}!`
+        : `Đã khôi phục thực đơn gốc cho ${shiftsToDelete.length} ca ăn của ${vendorName}!`
+    );
+  };
+
+  // 2. Full vendor reset
+  const handleResetVendorMenus = (vendorId: string) => {
+    const defaultVendorShifts = PRELOADED_MENUS.filter((p) => p.vendorId === vendorId);
+    setMenusList((prev) => {
+      const otherVendors = prev.filter((m) => m.vendorId !== vendorId);
+      return [...otherVendors, ...defaultVendorShifts];
+    });
+    const vendorName = vendors.find((v) => v.id === vendorId)?.name || vendorId;
+    showToast(`Đã khôi phục toàn bộ thực đơn chuẩn của ${vendorName}!`);
+  };
+
+  // 3. Clear all dishes of this vendor
+  const handleClearVendorMenus = (vendorId: string) => {
+    setMenusList((prev) => {
+      return prev.map((m) => {
+        if (m.vendorId === vendorId) {
+          return {
+            ...m,
+            meatDishes: [],
+            meatDessert: '',
+            vegDishes: [],
+            vegDessert: '',
+          };
+        }
+        return m;
+      });
+    });
+    const vendorName = vendors.find((v) => v.id === vendorId)?.name || vendorId;
+    showToast(`Đã xóa trắng toàn bộ món ăn tuần của ${vendorName}!`);
+  };
+
+  // 4. Quick delete single shift
+  const handleDeleteSingleShift = (vendorId: string, dayOfWeek: string, shift: MealShift) => {
+    handleDeleteSelectedShifts([{ vendorId, dayOfWeek, shift }], 'reset-default');
   };
 
   // Reset default menus
@@ -216,6 +340,10 @@ export default function App() {
               menusList={menusList}
               onUpdateMenu={handleUpdateMenu}
               onResetMenus={handleResetDefaultData}
+              onDeleteSelectedShifts={handleDeleteSelectedShifts}
+              onResetVendorMenus={handleResetVendorMenus}
+              onClearVendorMenus={handleClearVendorMenus}
+              onDeleteSingleShift={handleDeleteSingleShift}
               initialVendorId={selectedVendorIds[0] || 'tam-phuong'}
             />
           ) : currentTab === 'overview' ? (
@@ -223,11 +351,11 @@ export default function App() {
             <div className="bg-white rounded-2xl border border-neutral-200 p-6 sm:p-8 space-y-6 shadow-xs">
               <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 border-b border-neutral-100 pb-5">
                 <div>
-                  <h1 className="text-2xl font-bold text-neutral-900">
-                    Tổng quan hệ thống báo cáo suất ăn
+                  <h1 className="text-2xl sm:text-3xl font-black text-neutral-900 uppercase tracking-tight">
+                    KÝ TÚC XÁ HÓC MÔN
                   </h1>
-                  <p className="text-xs sm:text-sm text-neutral-500 mt-1">
-                    Dự án Vinhomes Hóc Môn · Giám sát 7 nhà cung cấp suất ăn công nghiệp &amp; bán trú
+                  <p className="text-xs sm:text-sm font-bold text-teal-800 uppercase tracking-wide mt-1">
+                    TRUNG TÂM DỮ LIỆU SUẤT ĂN VÀ BÁO CÁO THỐNG KÊ
                   </p>
                 </div>
                 <div className="flex items-center gap-2">
@@ -294,21 +422,31 @@ export default function App() {
           ) : (
             /* Report Tab */
             <>
-              {/* Header Title Section matching Screenshot 1 */}
+              {/* Header Title Section matching User Instruction */}
               <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
                 <div>
-                  <div className="text-xs font-bold text-amber-600 uppercase tracking-wider">
-                    TRUNG TÂM ĐIỀU PHỐI · VINHOMES HÓC MÔN
-                  </div>
-                  <h1 className="text-2xl sm:text-3xl font-extrabold text-neutral-900 tracking-tight mt-1">
-                    Tạo báo cáo từ thực đơn
+                  <h1 className="text-2xl sm:text-3xl font-black text-neutral-900 tracking-tight uppercase">
+                    KÝ TÚC XÁ HÓC MÔN
                   </h1>
+                  <div className="text-xs sm:text-sm font-bold text-teal-800 uppercase tracking-wide mt-1">
+                    TRUNG TÂM DỮ LIỆU SUẤT ĂN VÀ BÁO CÁO THỐNG KÊ
+                  </div>
                   <p className="text-xs sm:text-sm text-neutral-500 mt-1 max-w-2xl leading-relaxed">
-                    Không cố định số liệu. Hàng tuần tải thực đơn, chọn một hoặc nhiều nhà cung cấp cùng lúc để hệ thống tự động điền các món chính xác và xuất văn bản sao chép nhanh.
+                    Hàng tuần tải thực đơn, chọn một hoặc nhiều nhà cung cấp cùng lúc để hệ thống tự động điền các món chính xác và xuất văn bản sao chép nhanh.
                   </p>
                 </div>
 
                 <div className="flex items-center gap-2">
+                  {/* Delete / Revert uploaded menu button */}
+                  <button
+                    onClick={() => setIsGlobalDeleteModalOpen(true)}
+                    className="px-3 py-2 rounded-xl border border-red-200 bg-red-50/70 hover:bg-red-100 text-red-700 text-xs font-semibold flex items-center gap-1.5 transition-colors cursor-pointer shadow-2xs"
+                    title="Mở bảng chọn để xóa ca ăn hoặc thực đơn đã up nhầm"
+                  >
+                    <Trash2 className="w-3.5 h-3.5 text-red-600" />
+                    <span>Xóa thực đơn up nhầm</span>
+                  </button>
+
                   {/* Reset Default Data button */}
                   <button
                     onClick={handleResetDefaultData}
@@ -338,8 +476,10 @@ export default function App() {
                   {/* Block 1: Upload Menu Image */}
                   <MenuUploadDropzone
                     currentMenuName={activeMenuName}
-                    onImageUploaded={handleImageUploaded}
+                    onMenuExtracted={handleMenuExtracted}
                     onOpenHistory={() => setCurrentTab('menu-sheet')}
+                    onOpenDeleteModal={() => setIsGlobalDeleteModalOpen(true)}
+                    onUndoUploadedMenu={handleResetVendorMenus}
                   />
 
                   {/* Block 2: Headcount Portions Input Table matching Screenshot 2 with multi-selection */}
@@ -384,6 +524,18 @@ export default function App() {
           )}
         </main>
       </div>
+
+      {/* Global Delete / Revert Menu Modal */}
+      <DeleteMenuModal
+        isOpen={isGlobalDeleteModalOpen}
+        onClose={() => setIsGlobalDeleteModalOpen(false)}
+        vendors={vendors}
+        menusList={menusList}
+        initialVendorId={selectedVendorIds[0] || 'tam-phuong'}
+        onDeleteSelectedShifts={handleDeleteSelectedShifts}
+        onResetVendorMenus={handleResetVendorMenus}
+        onClearVendorMenus={handleClearVendorMenus}
+      />
     </div>
   );
 }

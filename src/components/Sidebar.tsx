@@ -19,11 +19,11 @@ export const Sidebar: React.FC<SidebarProps> = ({ currentTab, setCurrentTab }) =
             <FileText className="w-5 h-5 text-teal-400" />
           </div>
           <div>
-            <div className="text-[15px] font-bold text-neutral-900 leading-tight">
-              Bếp báo cáo
+            <div className="text-[13px] font-extrabold text-neutral-900 leading-tight tracking-tight uppercase">
+              KÝ TÚC XÁ HÓC MÔN
             </div>
-            <div className="text-[10px] font-semibold text-neutral-400 uppercase tracking-wider">
-              VINHOMES HÓC MÔN
+            <div className="text-[9px] font-bold text-teal-700 uppercase tracking-wider mt-0.5 leading-tight">
+              TRUNG TÂM DỮ LIỆU SUẤT ĂN VÀ BÁO CÁO THỐNG KÊ
             </div>
           </div>
         </div>

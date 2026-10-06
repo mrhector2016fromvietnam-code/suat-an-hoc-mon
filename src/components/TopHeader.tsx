@@ -5,11 +5,11 @@ export const TopHeader: React.FC = () => {
     <header className="h-16 px-6 sm:px-8 border-b border-neutral-200/90 bg-white flex items-center justify-between shrink-0">
       {/* Breadcrumb Left */}
       <div>
-        <div className="text-[11px] text-neutral-400 font-medium leading-none">
-          Thông tin báo cáo
+        <div className="text-base sm:text-lg font-black text-neutral-900 leading-tight uppercase tracking-tight">
+          KÝ TÚC XÁ HÓC MÔN
         </div>
-        <div className="text-base font-bold text-neutral-900 leading-tight mt-0.5">
-          Báo cáo suất ăn
+        <div className="text-[11px] font-bold text-teal-700 leading-tight mt-0.5 uppercase tracking-wide">
+          TRUNG TÂM DỮ LIỆU SUẤT ĂN VÀ BÁO CÁO THỐNG KÊ
         </div>
       </div>
 

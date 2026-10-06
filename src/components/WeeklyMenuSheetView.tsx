@@ -1,10 +1,12 @@
 import React, { useState, useMemo } from 'react';
 import { DAYS_OF_WEEK, getMenuForVendorAndShift } from '../data/vinhomesMenuData';
 import { MealShift, DayShiftMenu } from '../types/report';
+import { cleanDishName } from './ReportTextOutput';
+import { DeleteMenuModal } from './DeleteMenuModal';
 import { 
   Printer, Calendar, Check, Search, Filter, 
   ArrowRight, Edit3, Table, LayoutGrid, Eye, Plus, Sparkles,
-  Columns, RotateCcw, Building2, Utensils, Coffee, Moon, Sun, CheckCircle2
+  Columns, RotateCcw, Building2, Utensils, Coffee, Moon, Sun, CheckCircle2, Trash2
 } from 'lucide-react';
 
 interface WeeklyMenuSheetViewProps {
@@ -12,6 +14,10 @@ interface WeeklyMenuSheetViewProps {
   menusList: DayShiftMenu[];
   onUpdateMenu: (updatedMenu: DayShiftMenu) => void;
   onResetMenus?: () => void;
+  onDeleteSelectedShifts?: (shiftsToDelete: { vendorId: string; dayOfWeek: string; shift: MealShift }[], action: 'clear' | 'reset-default') => void;
+  onResetVendorMenus?: (vendorId: string) => void;
+  onClearVendorMenus?: (vendorId: string) => void;
+  onDeleteSingleShift?: (vendorId: string, dayOfWeek: string, shift: MealShift) => void;
   initialVendorId?: string;
 }
 
@@ -20,6 +26,10 @@ export const WeeklyMenuSheetView: React.FC<WeeklyMenuSheetViewProps> = ({
   menusList,
   onUpdateMenu,
   onResetMenus,
+  onDeleteSelectedShifts,
+  onResetVendorMenus,
+  onClearVendorMenus,
+  onDeleteSingleShift,
   initialVendorId = 'tam-phuong'
 }) => {
   const [selectedVendorFilter, setSelectedVendorFilter] = useState<string>(initialVendorId);
@@ -28,6 +38,7 @@ export const WeeklyMenuSheetView: React.FC<WeeklyMenuSheetViewProps> = ({
   const [searchQuery, setSearchQuery] = useState<string>('');
   const [viewMode, setViewMode] = useState<'matrix' | 'cards' | 'compare'>('matrix');
   const [toastMessage, setToastMessage] = useState<string | null>(null);
+  const [isDeleteModalOpen, setIsDeleteModalOpen] = useState(false);
 
   // Edit modal state
   const [editingItem, setEditingItem] = useState<DayShiftMenu | null>(null);
@@ -125,7 +136,7 @@ export const WeeklyMenuSheetView: React.FC<WeeklyMenuSheetViewProps> = ({
         
         <div className="flex flex-wrap items-center justify-center gap-3 sm:gap-6 text-xs text-neutral-600 pt-1">
           <div>
-            <strong className="text-neutral-900">Dự án:</strong> Vinhomes Hóc Môn
+            <strong className="text-neutral-900">Dự án:</strong> Ký Túc Xá Hóc Môn
           </div>
           <div className="hidden sm:inline text-neutral-300">|</div>
           <div>
@@ -273,6 +284,15 @@ export const WeeklyMenuSheetView: React.FC<WeeklyMenuSheetViewProps> = ({
               <Columns className="w-3.5 h-3.5" />
               <span>So sánh NCC</span>
             </button>
+            <button
+              type="button"
+              onClick={() => setIsDeleteModalOpen(true)}
+              className="px-2.5 py-1.5 rounded-lg border border-red-200 text-red-700 bg-red-50/70 hover:bg-red-100 text-xs font-bold flex items-center gap-1 transition-all cursor-pointer shadow-2xs"
+              title="Mở bảng chọn để xóa ca ăn hoặc khôi phục thực đơn up nhầm"
+            >
+              <Trash2 className="w-3.5 h-3.5 text-red-600" />
+              <span>Xóa thực đơn</span>
+            </button>
           </div>
         </div>
       </div>
@@ -339,14 +359,14 @@ export const WeeklyMenuSheetView: React.FC<WeeklyMenuSheetViewProps> = ({
                         <>
                           <div>
                             <div className="font-bold text-neutral-900 leading-snug">
-                              {morning.meatDishes.join(', ')}
+                              {morning.meatDishes.map(cleanDishName).join(', ')}
                             </div>
                             <div className="text-[11px] text-amber-800 mt-1">
-                              <strong>Chay:</strong> {morning.vegDishes.join(', ')}
+                              <strong>Chay:</strong> {morning.vegDishes.map(cleanDishName).join(', ')}
                             </div>
                             <div className="text-[11px] text-emerald-700 font-semibold mt-1 flex items-center gap-1">
                               <span className="w-1.5 h-1.5 rounded-full bg-emerald-500" />
-                              <span>Tráng miệng: {morning.vegDessert || morning.meatDessert}</span>
+                              <span>Tráng miệng: {cleanDishName(morning.vegDessert || morning.meatDessert)}</span>
                             </div>
                           </div>
 
@@ -361,14 +381,28 @@ export const WeeklyMenuSheetView: React.FC<WeeklyMenuSheetViewProps> = ({
                             >
                               <span>Chọn nạp báo cáo</span> &rarr;
                             </button>
-                            <button
-                              type="button"
-                              onClick={() => openEdit(morning)}
-                              className="p-1 rounded text-neutral-400 hover:text-neutral-800 hover:bg-neutral-100 cursor-pointer"
-                              title="Chỉnh sửa món"
-                            >
-                              <Edit3 className="w-3.5 h-3.5" />
-                            </button>
+                            <div className="flex items-center gap-1">
+                              <button
+                                type="button"
+                                onClick={() => openEdit(morning)}
+                                className="p-1 rounded text-neutral-400 hover:text-neutral-800 hover:bg-neutral-100 cursor-pointer"
+                                title="Chỉnh sửa món"
+                              >
+                                <Edit3 className="w-3.5 h-3.5" />
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  if (onDeleteSingleShift) {
+                                    onDeleteSingleShift(selectedVendorFilter, day, 'Bữa sáng');
+                                  }
+                                }}
+                                className="p-1 rounded text-neutral-400 hover:text-red-600 hover:bg-red-50 cursor-pointer transition-colors"
+                                title="Xóa món ca này (nếu up nhầm)"
+                              >
+                                <Trash2 className="w-3.5 h-3.5" />
+                              </button>
+                            </div>
                           </div>
                         </>
                       ) : (
@@ -382,14 +416,14 @@ export const WeeklyMenuSheetView: React.FC<WeeklyMenuSheetViewProps> = ({
                         <>
                           <div>
                             <div className="font-bold text-neutral-900 leading-snug">
-                              {lunch.meatDishes.join(', ')}
+                              {lunch.meatDishes.map(cleanDishName).join(', ')}
                             </div>
                             <div className="text-[11px] text-amber-800 mt-1">
-                              <strong>Chay:</strong> {lunch.vegDishes.join(', ')}
+                              <strong>Chay:</strong> {lunch.vegDishes.map(cleanDishName).join(', ')}
                             </div>
                             <div className="text-[11px] text-emerald-700 font-semibold mt-1 flex items-center gap-1">
                               <span className="w-1.5 h-1.5 rounded-full bg-emerald-500" />
-                              <span>Tráng miệng: {lunch.meatDessert}</span>
+                              <span>Tráng miệng: {cleanDishName(lunch.meatDessert)}</span>
                             </div>
                           </div>
 
@@ -404,14 +438,28 @@ export const WeeklyMenuSheetView: React.FC<WeeklyMenuSheetViewProps> = ({
                             >
                               <span>Chọn nạp báo cáo</span> &rarr;
                             </button>
-                            <button
-                              type="button"
-                              onClick={() => openEdit(lunch)}
-                              className="p-1 rounded text-neutral-400 hover:text-neutral-800 hover:bg-neutral-100 cursor-pointer"
-                              title="Chỉnh sửa món"
-                            >
-                              <Edit3 className="w-3.5 h-3.5" />
-                            </button>
+                            <div className="flex items-center gap-1">
+                              <button
+                                type="button"
+                                onClick={() => openEdit(lunch)}
+                                className="p-1 rounded text-neutral-400 hover:text-neutral-800 hover:bg-neutral-100 cursor-pointer"
+                                title="Chỉnh sửa món"
+                              >
+                                <Edit3 className="w-3.5 h-3.5" />
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  if (onDeleteSingleShift) {
+                                    onDeleteSingleShift(selectedVendorFilter, day, 'Bữa trưa');
+                                  }
+                                }}
+                                className="p-1 rounded text-neutral-400 hover:text-red-600 hover:bg-red-50 cursor-pointer transition-colors"
+                                title="Xóa món ca này (nếu up nhầm)"
+                              >
+                                <Trash2 className="w-3.5 h-3.5" />
+                              </button>
+                            </div>
                           </div>
                         </>
                       ) : (
@@ -425,14 +473,14 @@ export const WeeklyMenuSheetView: React.FC<WeeklyMenuSheetViewProps> = ({
                         <>
                           <div>
                             <div className="font-bold text-neutral-900 leading-snug">
-                              {dinner.meatDishes.join(', ')}
+                              {dinner.meatDishes.map(cleanDishName).join(', ')}
                             </div>
                             <div className="text-[11px] text-amber-800 mt-1">
-                              <strong>Chay:</strong> {dinner.vegDishes.join(', ')}
+                              <strong>Chay:</strong> {dinner.vegDishes.map(cleanDishName).join(', ')}
                             </div>
                             <div className="text-[11px] text-emerald-700 font-semibold mt-1 flex items-center gap-1">
                               <span className="w-1.5 h-1.5 rounded-full bg-emerald-500" />
-                              <span>Tráng miệng: {dinner.meatDessert}</span>
+                              <span>Tráng miệng: {cleanDishName(dinner.meatDessert)}</span>
                             </div>
                           </div>
 
@@ -447,14 +495,28 @@ export const WeeklyMenuSheetView: React.FC<WeeklyMenuSheetViewProps> = ({
                             >
                               <span>Chọn nạp báo cáo</span> &rarr;
                             </button>
-                            <button
-                              type="button"
-                              onClick={() => openEdit(dinner)}
-                              className="p-1 rounded text-neutral-400 hover:text-neutral-800 hover:bg-neutral-100 cursor-pointer"
-                              title="Chỉnh sửa món"
-                            >
-                              <Edit3 className="w-3.5 h-3.5" />
-                            </button>
+                            <div className="flex items-center gap-1">
+                              <button
+                                type="button"
+                                onClick={() => openEdit(dinner)}
+                                className="p-1 rounded text-neutral-400 hover:text-neutral-800 hover:bg-neutral-100 cursor-pointer"
+                                title="Chỉnh sửa món"
+                              >
+                                <Edit3 className="w-3.5 h-3.5" />
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  if (onDeleteSingleShift) {
+                                    onDeleteSingleShift(selectedVendorFilter, day, 'Bữa tối');
+                                  }
+                                }}
+                                className="p-1 rounded text-neutral-400 hover:text-red-600 hover:bg-red-50 cursor-pointer transition-colors"
+                                title="Xóa món ca này (nếu up nhầm)"
+                              >
+                                <Trash2 className="w-3.5 h-3.5" />
+                              </button>
+                            </div>
                           </div>
                         </>
                       ) : (
@@ -515,13 +577,27 @@ export const WeeklyMenuSheetView: React.FC<WeeklyMenuSheetViewProps> = ({
                 </div>
 
                 <div className="flex items-center justify-between pt-2 border-t border-neutral-100">
-                  <button
-                    type="button"
-                    onClick={() => openEdit(item)}
-                    className="text-neutral-500 hover:text-neutral-800 flex items-center gap-1 cursor-pointer"
-                  >
-                    <Edit3 className="w-3.5 h-3.5" /> Sửa món
-                  </button>
+                  <div className="flex items-center gap-2">
+                    <button
+                      type="button"
+                      onClick={() => openEdit(item)}
+                      className="text-neutral-500 hover:text-neutral-800 flex items-center gap-1 cursor-pointer"
+                    >
+                      <Edit3 className="w-3.5 h-3.5" /> Sửa món
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        if (onDeleteSingleShift) {
+                          onDeleteSingleShift(item.vendorId || selectedVendorFilter, item.dayOfWeek, item.shift);
+                        }
+                      }}
+                      className="text-neutral-400 hover:text-red-600 flex items-center gap-1 cursor-pointer"
+                      title="Xóa/khôi phục món ca này nếu up nhầm"
+                    >
+                      <Trash2 className="w-3.5 h-3.5" /> Xóa món
+                    </button>
+                  </div>
                   <button
                     type="button"
                     onClick={() => {
@@ -718,6 +794,30 @@ export const WeeklyMenuSheetView: React.FC<WeeklyMenuSheetViewProps> = ({
           </div>
         </div>
       )}
+
+      {/* Delete Menu Modal */}
+      <DeleteMenuModal
+        isOpen={isDeleteModalOpen}
+        onClose={() => setIsDeleteModalOpen(false)}
+        vendors={vendors}
+        menusList={menusList}
+        initialVendorId={selectedVendorFilter}
+        onDeleteSelectedShifts={(shifts, action) => {
+          if (onDeleteSelectedShifts) {
+            onDeleteSelectedShifts(shifts, action);
+          }
+        }}
+        onResetVendorMenus={(vId) => {
+          if (onResetVendorMenus) {
+            onResetVendorMenus(vId);
+          }
+        }}
+        onClearVendorMenus={(vId) => {
+          if (onClearVendorMenus) {
+            onClearVendorMenus(vId);
+          }
+        }}
+      />
     </div>
   );
 };

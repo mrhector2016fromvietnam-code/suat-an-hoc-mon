@@ -81,7 +81,7 @@ export const RightSidebarSummary: React.FC<RightSidebarSummaryProps> = ({
                 </option>
               ))}
             </select>
-            <span className="text-neutral-400">Vinhomes Hóc Môn</span>
+            <span className="text-teal-300 font-semibold">Ký Túc Xá Hóc Môn</span>
           </div>
         </div>
 
