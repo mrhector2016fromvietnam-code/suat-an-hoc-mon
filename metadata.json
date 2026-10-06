@@ -1,0 +1,6 @@
+{
+  "name": "Bếp báo cáo - Vinhomes Hóc Môn",
+  "description": "Hệ thống tự động điền báo cáo suất ăn từ thực đơn cho các nhà cung cấp tại Vinhomes Hóc Môn.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
