@@ -37,13 +37,33 @@ export const cleanDishName = (name: string): string => {
     .trim();
 };
 
-const cleanMenuObj = (m: DayShiftMenu): DayShiftMenu => ({
-  ...m,
-  meatDishes: m.meatDishes.map(cleanDishName).filter(Boolean),
-  vegDishes: m.vegDishes.map(cleanDishName).filter(Boolean),
-  meatDessert: cleanDishName(m.meatDessert),
-  vegDessert: cleanDishName(m.vegDessert),
-});
+export const cleanMenuObj = (m: DayShiftMenu): DayShiftMenu => {
+  if (!m) {
+    return {
+      vendorId: 'tam-phuong',
+      dayOfWeek: 'Thứ 2',
+      dateStr: '05/10/2026',
+      shift: 'Bữa sáng',
+      meatDishes: ['Cơm trắng', 'Món mặn theo ca'],
+      meatDessert: 'Trái cây theo mùa',
+      vegDishes: ['Cơm trắng', 'Món chay theo ca'],
+      vegDessert: 'Trái cây theo mùa',
+      isWeighedOk: true
+    };
+  }
+
+  const rawMeat = Array.isArray(m.meatDishes) ? m.meatDishes : [];
+  const rawVeg = Array.isArray(m.vegDishes) ? m.vegDishes : [];
+
+  return {
+    ...m,
+    meatDishes: rawMeat.map(cleanDishName).filter(Boolean),
+    vegDishes: rawVeg.map(cleanDishName).filter(Boolean),
+    meatDessert: cleanDishName(m.meatDessert || ''),
+    vegDessert: cleanDishName(m.vegDessert || ''),
+    isWeighedOk: m.isWeighedOk ?? true
+  };
+};
 
 // =========================================================================
 // 1. CÔNG TY TNHH SUẤT ĂN CÔNG NGHIỆP TÁM PHƯƠNG (7 NGÀY X 3 CA = 21 CA)
@@ -1813,14 +1833,16 @@ export const PRELOADED_MENUS: DayShiftMenu[] = [
  * TUYỆT ĐỐI KHÔNG GỘP CHUNG, KHÔNG LẤY NHẦM MÓN CỦA NCC NÀY SANG NCC KHÁC.
  */
 export const getMenuForVendorAndShift = (
-  menus: DayShiftMenu[],
-  vendorId: string,
-  dayOfWeek: string,
-  shift: MealShift
+  menus: DayShiftMenu[] = [],
+  vendorId: string = 'tam-phuong',
+  dayOfWeek: string = 'Thứ 2',
+  shift: MealShift = 'Bữa sáng'
 ): DayShiftMenu => {
+  const safeList = Array.isArray(menus) ? menus : [];
+
   // 1. Kiểm tra chính xác trong danh sách thực đơn hiện tại của người dùng (state)
-  const exactInCurrent = menus.find(
-    (m) => m.vendorId === vendorId && m.dayOfWeek === dayOfWeek && m.shift === shift
+  const exactInCurrent = safeList.find(
+    (m) => m && m.vendorId === vendorId && m.dayOfWeek === dayOfWeek && m.shift === shift
   );
   if (exactInCurrent) {
     return cleanMenuObj(exactInCurrent);
@@ -1828,7 +1850,7 @@ export const getMenuForVendorAndShift = (
 
   // 2. Kiểm tra chính xác trong cơ sở dữ liệu mẫu chuẩn PRELOADED_MENUS của đúng vendorId đó
   const exactInPreloaded = PRELOADED_MENUS.find(
-    (m) => m.vendorId === vendorId && m.dayOfWeek === dayOfWeek && m.shift === shift
+    (m) => m && m.vendorId === vendorId && m.dayOfWeek === dayOfWeek && m.shift === shift
   );
   if (exactInPreloaded) {
     return cleanMenuObj(exactInPreloaded);
@@ -1836,14 +1858,14 @@ export const getMenuForVendorAndShift = (
 
   // 3. Fallback chỉ trong phạm vi của đúng nhà cung cấp đó (cùng ca ăn)
   const vendorShift = PRELOADED_MENUS.find(
-    (m) => m.vendorId === vendorId && m.shift === shift
+    (m) => m && m.vendorId === vendorId && m.shift === shift
   );
   if (vendorShift) {
     return cleanMenuObj(vendorShift);
   }
 
   // 4. Fallback chỉ trong phạm vi của đúng nhà cung cấp đó (bất kỳ ca ăn)
-  const vendorAny = PRELOADED_MENUS.find((m) => m.vendorId === vendorId);
+  const vendorAny = PRELOADED_MENUS.find((m) => m && m.vendorId === vendorId);
   if (vendorAny) {
     return cleanMenuObj(vendorAny);
   }

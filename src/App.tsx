@@ -11,7 +11,7 @@ import { PortionInputTable } from './components/PortionInputTable';
 import { ReportTextOutput } from './components/ReportTextOutput';
 import { RightSidebarSummary } from './components/RightSidebarSummary';
 import { WeeklyMenuSheetView } from './components/WeeklyMenuSheetView';
-import { DEFAULT_VENDORS, PRELOADED_MENUS, DAYS_OF_WEEK, getMenuForVendorAndShift, cleanDishName } from './data/vinhomesMenuData';
+import { DEFAULT_VENDORS, PRELOADED_MENUS, DAYS_OF_WEEK, getMenuForVendorAndShift, cleanDishName, cleanMenuObj } from './data/vinhomesMenuData';
 import { DeleteMenuModal } from './components/DeleteMenuModal';
 import { VendorPortionRow, MealShift, DayShiftMenu } from './types/report';
 import { FileText, Sparkles, Check, RefreshCw, AlertCircle, Building2, Utensils, CheckCircle2, Trash2 } from 'lucide-react';
@@ -46,15 +46,13 @@ export default function App() {
     try {
       const saved = localStorage.getItem(STORAGE_KEY_MENUS);
       if (saved) {
-        const parsed: DayShiftMenu[] = JSON.parse(saved);
-        // Verify all 7 vendors are represented and no stale corrupted data
-        const uniqueVendors = new Set(parsed.map((m) => m.vendorId));
-        if (
-          uniqueVendors.size >= 7 &&
-          parsed.length >= 140 &&
-          !parsed.some((m) => m.meatDishes.some((d) => /\d+g\b|\d+-\d+g/i.test(d)))
-        ) {
-          return parsed;
+        const parsed = JSON.parse(saved);
+        if (Array.isArray(parsed) && parsed.length >= 140) {
+          const cleaned = parsed.map(cleanMenuObj);
+          const uniqueVendors = new Set(cleaned.map((m) => m.vendorId));
+          if (uniqueVendors.size >= 7) {
+            return cleaned;
+          }
         }
       }
     } catch (e) {}
@@ -491,7 +489,7 @@ export default function App() {
                     onSelectAll={() => setSelectedVendorIds(vendors.map((v) => v.id))}
                   />
 
-                  {/* Block 3: Report Text Box with Multi-Vendor Support and strictly accurate vendor menus */}
+                  {/* Block 3: Report Text Box with Multi-Vendor Support, In-Place Direct Editing, and accurate vendor menus */}
                   <ReportTextOutput
                     shift={currentShift}
                     dateStr={currentDateStr}
@@ -501,6 +499,7 @@ export default function App() {
                     allVendors={vendors}
                     menusList={menusList}
                     onUpdateMenuDishes={handleUpdateVendorMenu}
+                    onUpdateVendorPortion={handleUpdateVendorPortion}
                   />
                 </div>
 

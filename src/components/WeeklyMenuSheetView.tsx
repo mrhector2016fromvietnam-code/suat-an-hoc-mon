@@ -98,10 +98,10 @@ export const WeeklyMenuSheetView: React.FC<WeeklyMenuSheetViewProps> = ({
       const matchesShift = selectedShiftFilter === 'all' || m.shift === selectedShiftFilter;
       const matchesSearch =
         !searchQuery ||
-        m.meatDishes.some((d) => d.toLowerCase().includes(searchQuery.toLowerCase())) ||
-        m.vegDishes.some((d) => d.toLowerCase().includes(searchQuery.toLowerCase())) ||
-        m.meatDessert.toLowerCase().includes(searchQuery.toLowerCase()) ||
-        m.vegDessert.toLowerCase().includes(searchQuery.toLowerCase());
+        (Array.isArray(m.meatDishes) && m.meatDishes.some((d) => (d || '').toLowerCase().includes(searchQuery.toLowerCase()))) ||
+        (Array.isArray(m.vegDishes) && m.vegDishes.some((d) => (d || '').toLowerCase().includes(searchQuery.toLowerCase()))) ||
+        (m.meatDessert || '').toLowerCase().includes(searchQuery.toLowerCase()) ||
+        (m.vegDessert || '').toLowerCase().includes(searchQuery.toLowerCase());
 
       return matchesVendor && matchesDay && matchesShift && matchesSearch;
     });
