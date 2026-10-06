@@ -2,7 +2,8 @@ import React, { useState, useEffect, useMemo } from 'react';
 import { 
   Copy, Check, CheckSquare, Square, Edit3, Sparkles, Building2, 
   Utensils, RotateCcw, Save, Type, Eye, Plus, X, SlidersHorizontal, 
-  FileCheck, ShieldCheck, Printer, CheckCircle2, ChevronRight, Hash
+  FileCheck, ShieldCheck, Printer, CheckCircle2, ChevronRight, Hash,
+  Layers, MapPin
 } from 'lucide-react';
 import { VendorPortionRow, DayShiftMenu, MealShift } from '../types/report';
 import { getMenuForVendorAndShift, cleanDishName, PRELOADED_MENUS } from '../data/vinhomesMenuData';
@@ -41,6 +42,9 @@ export const ReportTextOutput: React.FC<ReportTextOutputProps> = ({
   const [copiedAll, setCopiedAll] = useState(false);
   const [copiedVendorId, setCopiedVendorId] = useState<string | null>(null);
   
+  // KTX Selection: 'KTX1' | 'KTX2' (Default: 'KTX1')
+  const [selectedKtx, setSelectedKtx] = useState<'KTX1' | 'KTX2'>('KTX1');
+
   // Editor view mode: 'preview' (standard view), 'interactive' (in-place field editor), 'raw' (free textarea)
   const [editorMode, setEditorMode] = useState<'preview' | 'interactive' | 'raw'>('preview');
   
@@ -102,9 +106,72 @@ export const ReportTextOutput: React.FC<ReportTextOutputProps> = ({
   // Active vendor obj
   const activeTabVendorObj = allVendors.find((v) => v.id === activeTabVendorId) || activeVendors[0] || allVendors[0];
 
-  // Helper: Build single vendor report text
-  const buildVendorBlock = (vendor: VendorPortionRow, format: 'standard' | 'compact' | 'table' = 'standard') => {
-    const shiftLower = shift.toLowerCase();
+  /**
+   * Helper: Determine pricing and shift naming strictly according to standard template:
+   * - Bữa sáng: 20.000đ, Ca "suất ăn sáng"
+   * - Bữa trưa: 40.000đ, Ca "suất ăn trưa"
+   * - Bữa tối: 40.000đ, Ca "suất ăn tối"
+   */
+  const getShiftDetails = (shiftName: string) => {
+    const s = shiftName.toLowerCase();
+    if (s.includes('sáng')) {
+      return { price: '20.000đ', label: 'suất ăn sáng', isMorning: true, isLunch: false, isDinner: false };
+    }
+    if (s.includes('trưa')) {
+      return { price: '40.000đ', label: 'suất ăn trưa', isMorning: false, isLunch: true, isDinner: false };
+    }
+    return { price: '40.000đ', label: 'suất ăn tối', isMorning: false, isLunch: false, isDinner: true };
+  };
+
+  /**
+   * Helper: Build single vendor report text strictly matching user real-world template:
+   * 1. Bữa sáng:
+   *    Báo cáo Anh/Chị: Lán trại Hóc Môn [Tên KTX] phục vụ suất ăn sáng ngày [Ngày/Tháng/Năm]
+   *    • Tổng cộng: [Số lượng] suất
+   *    • Đơn giá: 20.000đ
+   *    NCC: [Tên nhà cung cấp]
+   *    • Tổng suất ăn: [Số lượng] suất
+   *    TĐ 8: [Số lượng] suất
+   *    TĐ 11.1: [Số lượng] suất
+   *    TĐ 11.3: [Số lượng] suất
+   *    • Suất ăn mặn: [Danh sách món mặn]
+   *    • Suất ăn chay: [Danh sách món chay]
+   *    Cân định lượng: Đạt
+   *
+   * 2. Bữa trưa:
+   *    Báo cáo Anh/Chị: Lán trại Hóc Môn [Tên KTX] phục vụ suất ăn trưa ngày [Ngày/Tháng/Năm]
+   *    • Tổng cộng: [Số lượng] suất
+   *    • Đơn giá: 40.000đ
+   *    NCC: [Tên nhà cung cấp]
+   *    • Tổng suất ăn: [Số lượng] suất
+   *    TĐ 8: [Số lượng] suất
+   *    TĐ 11.1: [Số lượng] suất
+   *    TĐ 11.3: [Số lượng] suất
+   *    • Suất ăn mặn: [Danh sách món mặn]
+   *    • Suất ăn chay: [Danh sách món chay]
+   *    Cân định lượng: Đạt
+   *
+   * 3. Bữa tối:
+   *    Báo cáo Anh/Chị: Lán trại Hóc Môn [Tên KTX] phục vụ suất ăn tối ngày [Ngày/Tháng/Năm]
+   *    • Tổng cộng: [Số lượng] suất
+   *    • Đơn giá: 40.000đ
+   *    NCC: [Tên nhà cung cấp]
+   *    • Tổng suất ăn: [Số lượng] suất
+   *    TĐ 8: [Số lượng] suất
+   *    TĐ 11.1: [Số lượng] suất
+   *    TĐ 11.3: [Số lượng] suất
+   *    • Suất ăn mặn: [Danh sách món mặn]
+   *    • Tráng miệng mặn: [Món tráng miệng]
+   *    • Suất ăn chay: [Danh sách món chay]
+   *    • Tráng miệng chay: [Món tráng miệng]
+   *    Cân định lượng: Đạt
+   */
+  const buildVendorBlock = (
+    vendor: VendorPortionRow, 
+    format: 'standard' | 'compact' | 'table' = 'standard',
+    ktxName: string = selectedKtx
+  ) => {
+    const shiftInfo = getShiftDetails(shift);
     const vendorTotal = vendor.td8 + vendor.td11_1 + vendor.td11_3;
     const td8Str = vendor.td8 > 0 ? `${vendor.td8} suất` : 'chưa nhập suất';
     const td11_1Str = vendor.td11_1 > 0 ? `${vendor.td11_1} suất` : 'chưa nhập suất';
@@ -117,80 +184,129 @@ export const ReportTextOutput: React.FC<ReportTextOutputProps> = ({
     const vegDessertClean = cleanDishName(vendorMenu.vegDessert);
 
     if (format === 'compact') {
-      return `[${vendor.name.toUpperCase()} - ${shift.toUpperCase()} ${dateStr}]
-• Tổng: ${vendorTotal} suất (TĐ8: ${vendor.td8}, TĐ11.1: ${vendor.td11_1}, TĐ11.3: ${vendor.td11_3})
-• Mặn: ${meatDishesStr || 'Chưa cập nhật'}${meatDessertClean ? ` | TM: ${meatDessertClean}` : ''}
-• Chay: ${vegDishesStr || 'Chưa cập nhật'}${vegDessertClean ? ` | TM: ${vegDessertClean}` : ''}
+      const dessertPart = shiftInfo.isDinner
+        ? (meatDessertClean ? ` | TM: ${meatDessertClean}` : '')
+        : '';
+      return `[LÁN TRẠI HÓC MÔN ${ktxName.toUpperCase()} - ${vendor.name.toUpperCase()} - ${shift.toUpperCase()} ${dateStr}]
+• Tổng: ${vendorTotal} suất (Đơn giá: ${shiftInfo.price}) · TĐ8: ${vendor.td8}, TĐ11.1: ${vendor.td11_1}, TĐ11.3: ${vendor.td11_3}
+• Mặn: ${meatDishesStr || 'Chưa cập nhật'}${dessertPart}
+• Chay: ${vegDishesStr || 'Chưa cập nhật'}${shiftInfo.isDinner && vegDessertClean ? ` | TM Chay: ${vegDessertClean}` : ''}
 • ${customQualityNote}`;
     }
 
     if (format === 'table') {
       return `========================================
+LÁN TRẠI HÓC MÔN ${ktxName.toUpperCase()}
 NHÀ CUNG CẤP: ${vendor.name.toUpperCase()} (${vendor.code})
 ----------------------------------------
 Thời gian: ${shift} · ${dayOfWeek} (${dateStr})
-Tổng số suất: ${vendorTotal} suất
-Chi tiết phân bổ:
+Tổng số suất: ${vendorTotal} suất  (Đơn giá: ${shiftInfo.price})
+Chi tiết tổ đội phân bổ:
   + TĐ 8:    ${td8Str}
   + TĐ 11.1: ${td11_1Str}
   + TĐ 11.3: ${td11_3Str}
 ----------------------------------------
 THỰC ĐƠN CHI TIẾT:
-  [Món mặn]:      ${meatDishesStr || 'Chưa có'}
-  [Tráng miệng]:  ${meatDessertClean || 'Không'}
-  [Món chay]:     ${vegDishesStr || 'Chưa có'}
-  [TM Chay]:      ${vegDessertClean || 'Không'}
-----------------------------------------
+  [Suất ăn mặn]:  ${meatDishesStr || 'Chưa có'}
+  ${shiftInfo.isDinner ? `[Tráng miệng mặn]: ${meatDessertClean || 'Không'}\n  ` : ''}[Suất ăn chay]:  ${vegDishesStr || 'Chưa có'}
+  ${shiftInfo.isDinner ? `[Tráng miệng chay]: ${vegDessertClean || 'Không'}\n  ` : ''}----------------------------------------
 Kiểm tra: ${customQualityNote}
 ========================================`;
     }
 
-    // Standard Vietnamese Group Chat format (Zalo / Viber standard)
-    return `Báo cáo Anh/Chị: Khu bếp / nhà ăn phục vụ suất ăn ${shiftLower} ngày ${dateStr}
+    // Standard Vietnamese Real-World Format strictly matching Prompt
+    if (shiftInfo.isMorning) {
+      // 1. Bữa sáng (Không có tráng miệng, đơn giá 20.000đ)
+      return `Báo cáo Anh/Chị: Lán trại Hóc Môn ${ktxName} phục vụ suất ăn sáng ngày ${dateStr}
 • Tổng cộng: ${vendorTotal} suất
+• Đơn giá: 20.000đ
 NCC: ${vendor.name}
 • Tổng suất ăn: ${vendorTotal} suất
 TĐ 8: ${td8Str}
 TĐ 11.1: ${td11_1Str}
 TĐ 11.3: ${td11_3Str}
 • Suất ăn mặn: ${meatDishesStr}
-• Tráng miệng mặn: ${meatDessertClean}
 • Suất ăn chay: ${vegDishesStr}
-• Tráng miệng chay: ${vegDessertClean}
+${customQualityNote}`;
+    }
+
+    if (shiftInfo.isLunch) {
+      // 2. Bữa trưa (Không có tráng miệng, đơn giá 40.000đ)
+      return `Báo cáo Anh/Chị: Lán trại Hóc Môn ${ktxName} phục vụ suất ăn trưa ngày ${dateStr}
+• Tổng cộng: ${vendorTotal} suất
+• Đơn giá: 40.000đ
+NCC: ${vendor.name}
+• Tổng suất ăn: ${vendorTotal} suất
+TĐ 8: ${td8Str}
+TĐ 11.1: ${td11_1Str}
+TĐ 11.3: ${td11_3Str}
+• Suất ăn mặn: ${meatDishesStr}
+• Suất ăn chay: ${vegDishesStr}
+${customQualityNote}`;
+    }
+
+    // 3. Bữa tối (Có tráng miệng mặn & tráng miệng chay nếu có, đơn giá 40.000đ)
+    const dessertLines: string[] = [];
+    if (meatDessertClean) {
+      dessertLines.push(`• Tráng miệng mặn: ${meatDessertClean}`);
+    } else {
+      dessertLines.push(`• Tráng miệng mặn: Trái cây theo mùa`);
+    }
+
+    const vegDessertLine = vegDessertClean
+      ? `• Tráng miệng chay: ${vegDessertClean}`
+      : (meatDessertClean ? `• Tráng miệng chay: ${meatDessertClean}` : `• Tráng miệng chay: Trái cây theo mùa`);
+
+    return `Báo cáo Anh/Chị: Lán trại Hóc Môn ${ktxName} phục vụ suất ăn tối ngày ${dateStr}
+• Tổng cộng: ${vendorTotal} suất
+• Đơn giá: 40.000đ
+NCC: ${vendor.name}
+• Tổng suất ăn: ${vendorTotal} suất
+TĐ 8: ${td8Str}
+TĐ 11.1: ${td11_1Str}
+TĐ 11.3: ${td11_3Str}
+• Suất ăn mặn: ${meatDishesStr}
+${dessertLines.join('\n')}
+• Suất ăn chay: ${vegDishesStr}
+${vegDessertLine}
 ${customQualityNote}`;
   };
 
-  // Helper: Build combined report text
+  // Helper: Build combined report text across all active vendors
   const generatedFullReport = useMemo(() => {
+    const shiftInfo = getShiftDetails(shift);
     const grandTotal = activeVendors.reduce((sum, v) => sum + v.td8 + v.td11_1 + v.td11_3, 0);
 
     if (activeVendors.length === 1) {
-      return buildVendorBlock(activeVendors[0], reportFormat);
+      return buildVendorBlock(activeVendors[0], reportFormat, selectedKtx);
     }
 
-    const blocks = activeVendors.map((vendor) => buildVendorBlock(vendor, reportFormat));
+    const blocks = activeVendors.map((vendor) => buildVendorBlock(vendor, reportFormat, selectedKtx));
 
     if (reportFormat === 'compact') {
-      return `=== BÁO CÁO TỔNG HỢP (${shift.toUpperCase()} · ${dateStr}) ===
-TỔNG CỘNG: ${grandTotal} suất (${activeVendors.length} NCC)
+      return `=== BÁO CÁO TỔNG HỢP - LÁN TRẠI HÓC MÔN ${selectedKtx.toUpperCase()} (${shift.toUpperCase()} · ${dateStr}) ===
+TỔNG CỘNG: ${grandTotal} suất (${activeVendors.length} NCC) · Đơn giá: ${shiftInfo.price}
 
 ${blocks.join('\n\n')}`;
     }
 
     if (reportFormat === 'table') {
       return `########################################
-BÁO CÁO TỔNG HỢP SUẤT ĂN - ${shift.toUpperCase()} (${dateStr})
+BÁO CÁO TỔNG HỢP SUẤT ĂN - LÁN TRẠI HÓC MÔN ${selectedKtx.toUpperCase()}
+THỜI GIAN: ${shift.toUpperCase()} (${dateStr}) - ĐƠN GIÁ: ${shiftInfo.price}
 TỔNG CỘNG TOÀN KHU: ${grandTotal} SUẤT (${activeVendors.length} NHÀ CUNG CẤP)
 ########################################
 
 ${blocks.join('\n\n')}`;
     }
 
-    return `BÁO CÁO TỔNG HỢP CÁC NHÀ CUNG CẤP - ${shift.toUpperCase()} NGÀY ${dateStr}
+    // Standard Vietnamese Combined Report Header
+    return `BÁO CÁO TỔNG HỢP CÁC NHÀ CUNG CẤP - LÁN TRẠI HÓC MÔN ${selectedKtx.toUpperCase()} - ${shift.toUpperCase()} NGÀY ${dateStr}
 • TỔNG CỘNG TOÀN BỘ (${activeVendors.length} NCC): ${grandTotal} suất
+• Đơn giá: ${shiftInfo.price}
 
 ${blocks.join('\n\n----------------------------------------\n\n')}`;
-  }, [activeVendors, shift, dateStr, dayOfWeek, menusList, customQualityNote, reportFormat]);
+  }, [activeVendors, shift, dateStr, dayOfWeek, menusList, customQualityNote, reportFormat, selectedKtx]);
 
   // Sync custom raw text if not manually overridden
   useEffect(() => {
@@ -210,7 +326,7 @@ ${blocks.join('\n\n----------------------------------------\n\n')}`;
 
   // Copy single vendor text
   const handleCopySingle = (vendor: VendorPortionRow) => {
-    const text = buildVendorBlock(vendor, reportFormat);
+    const text = buildVendorBlock(vendor, reportFormat, selectedKtx);
     navigator.clipboard.writeText(text);
     setCopiedVendorId(vendor.id);
     setTimeout(() => setCopiedVendorId(null), 2500);
@@ -265,24 +381,53 @@ ${blocks.join('\n\n----------------------------------------\n\n')}`;
     }
   };
 
+  const shiftInfo = getShiftDetails(shift);
+
   return (
     <div className="bg-white rounded-2xl border border-neutral-200/90 shadow-sm overflow-hidden">
-      {/* Header bar with visual prestige */}
+      {/* Header bar with visual prestige & KTX Selector */}
       <div className="p-5 sm:p-6 bg-gradient-to-r from-[#0b1e33] to-[#123154] text-white flex flex-col md:flex-row md:items-center justify-between gap-4">
         <div>
-          <div className="flex items-center gap-2">
+          <div className="flex flex-wrap items-center gap-2">
+            {/* KTX1 / KTX2 Selector Pills */}
+            <div className="inline-flex items-center p-0.5 rounded-lg bg-white/15 border border-white/20">
+              <button
+                type="button"
+                onClick={() => setSelectedKtx('KTX1')}
+                className={`px-2.5 py-0.5 rounded text-xs font-black tracking-wide transition-all cursor-pointer ${
+                  selectedKtx === 'KTX1'
+                    ? 'bg-teal-400 text-neutral-950 shadow-xs'
+                    : 'text-white/80 hover:text-white'
+                }`}
+              >
+                KTX 1
+              </button>
+              <button
+                type="button"
+                onClick={() => setSelectedKtx('KTX2')}
+                className={`px-2.5 py-0.5 rounded text-xs font-black tracking-wide transition-all cursor-pointer ${
+                  selectedKtx === 'KTX2'
+                    ? 'bg-teal-400 text-neutral-950 shadow-xs'
+                    : 'text-white/80 hover:text-white'
+                }`}
+              >
+                KTX 2
+              </button>
+            </div>
+
             <span className="px-2 py-0.5 rounded bg-teal-500/20 text-teal-300 font-mono text-[11px] font-bold uppercase tracking-wider border border-teal-500/30">
               {shift} · {dayOfWeek} ({dateStr})
             </span>
-            <span className="text-neutral-400 text-xs font-mono">
-              {activeVendors.length} Nhà Cung Cấp
+            <span className="px-2 py-0.5 rounded bg-amber-400/20 text-amber-300 font-mono text-[11px] font-bold border border-amber-400/30">
+              Đơn giá: {shiftInfo.price}
             </span>
           </div>
-          <h2 className="text-lg sm:text-xl font-black tracking-tight text-white mt-1">
-            Trung Tâm Xuất Báo Cáo Suất Ăn
+
+          <h2 className="text-lg sm:text-xl font-black tracking-tight text-white mt-1.5 flex items-center gap-2">
+            <span>Báo Cáo Suất Ăn · Lán Trại Hóc Môn {selectedKtx}</span>
           </h2>
           <p className="text-xs text-neutral-300 mt-0.5">
-            Tự động điền dữ liệu chuẩn, hỗ trợ chỉnh sửa trực tiếp và sao chép 1-chạm gửi Zalo/Viber
+            Định dạng văn bản chuẩn 100% theo ca ăn (Sáng {getShiftDetails('sáng').price} · Trưa {getShiftDetails('trưa').price} · Tối {getShiftDetails('tối').price})
           </p>
         </div>
 
@@ -343,12 +488,12 @@ ${blocks.join('\n\n----------------------------------------\n\n')}`;
             {copiedAll ? (
               <>
                 <Check className="w-4 h-4" />
-                <span>Đã sao chép ({activeVendors.length} NCC)!</span>
+                <span>Đã sao chép ({selectedKtx})!</span>
               </>
             ) : (
               <>
                 <Copy className="w-4 h-4 text-teal-200" />
-                <span>Sao chép toàn bộ</span>
+                <span>Sao chép báo cáo {selectedKtx}</span>
               </>
             )}
           </button>
@@ -357,17 +502,39 @@ ${blocks.join('\n\n----------------------------------------\n\n')}`;
 
       {/* Main Content Area */}
       <div className="p-5 sm:p-6 space-y-5">
-        {/* Vendor Selection Bar with Quick Toggle Pills */}
+        {/* Vendor Selection Bar with Quick Toggle Pills & KTX Indicator */}
         <div className="p-4 rounded-xl bg-neutral-50/90 border border-neutral-200 space-y-3">
           <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
             <div className="flex items-center gap-2">
               <span className="w-2 h-2 rounded-full bg-teal-600 animate-pulse" />
               <span className="text-xs font-bold text-neutral-800">
-                Nhà cung cấp hiển thị trong báo cáo ({selectedVendorIds.length}/{allVendors.length}):
+                Nhà cung cấp đưa vào báo cáo Lán Trại Hóc Môn <strong className="text-teal-900">{selectedKtx}</strong> ({selectedVendorIds.length}/{allVendors.length}):
               </span>
             </div>
 
             <div className="flex items-center gap-2">
+              {/* KTX Fast Switch in Bar */}
+              <div className="flex items-center gap-1 bg-white border border-neutral-200 rounded-lg p-0.5 text-xs">
+                <button
+                  type="button"
+                  onClick={() => setSelectedKtx('KTX1')}
+                  className={`px-2.5 py-1 rounded font-bold transition-colors cursor-pointer ${
+                    selectedKtx === 'KTX1' ? 'bg-teal-700 text-white shadow-2xs' : 'text-neutral-600 hover:text-neutral-900'
+                  }`}
+                >
+                  KTX 1
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setSelectedKtx('KTX2')}
+                  className={`px-2.5 py-1 rounded font-bold transition-colors cursor-pointer ${
+                    selectedKtx === 'KTX2' ? 'bg-teal-700 text-white shadow-2xs' : 'text-neutral-600 hover:text-neutral-900'
+                  }`}
+                >
+                  KTX 2
+                </button>
+              </div>
+
               {/* Template selector */}
               <div className="flex items-center gap-1 bg-white border border-neutral-200 rounded-lg p-0.5 text-xs">
                 <button
@@ -377,7 +544,7 @@ ${blocks.join('\n\n----------------------------------------\n\n')}`;
                     reportFormat === 'standard' ? 'bg-[#0b1e33] text-white' : 'text-neutral-600 hover:text-neutral-900'
                   }`}
                 >
-                  Chuẩn Zalo
+                  Chuẩn Mẫu
                 </button>
                 <button
                   type="button"
@@ -474,7 +641,7 @@ ${blocks.join('\n\n----------------------------------------\n\n')}`;
                 </span>
                 <div>
                   <h3 className="text-sm font-bold text-neutral-900">
-                    Chỉnh Sửa Trực Tiếp Dữ Liệu Báo Cáo
+                    Chỉnh Sửa Trực Tiếp Dữ Liệu Báo Cáo ({selectedKtx})
                   </h3>
                   <p className="text-xs text-neutral-600">
                     Mọi thay đổi tại đây sẽ cập nhật trực tiếp vào văn bản báo cáo và hệ thống dữ liệu
@@ -666,36 +833,40 @@ ${blocks.join('\n\n----------------------------------------\n\n')}`;
                     </button>
                   </div>
 
-                  {/* Meat Dessert Editor */}
-                  <div className="pt-2 border-t border-emerald-100 flex flex-col sm:flex-row sm:items-center justify-between gap-2">
-                    <span className="text-xs font-bold text-emerald-900 shrink-0">
-                      Tráng miệng mặn:
-                    </span>
-                    <input
-                      type="text"
-                      value={activeTabMenu.meatDessert || ''}
-                      onChange={(e) =>
-                        onUpdateMenuDishes(activeTabVendorId, { meatDessert: cleanDishName(e.target.value) })
-                      }
-                      placeholder="VD: Dưa hấu, Chuối, Ổi..."
-                      className="flex-1 px-2.5 py-1 rounded-lg border border-neutral-300 text-xs focus:ring-1 focus:ring-emerald-500 focus:outline-none"
-                    />
-                  </div>
+                  {/* Meat Dessert Editor (Bữa tối hiển thị dòng tráng miệng) */}
+                  {shiftInfo.isDinner && (
+                    <>
+                      <div className="pt-2 border-t border-emerald-100 flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+                        <span className="text-xs font-bold text-emerald-900 shrink-0">
+                          Tráng miệng mặn:
+                        </span>
+                        <input
+                          type="text"
+                          value={activeTabMenu.meatDessert || ''}
+                          onChange={(e) =>
+                            onUpdateMenuDishes(activeTabVendorId, { meatDessert: cleanDishName(e.target.value) })
+                          }
+                          placeholder="VD: Dưa hấu, Chuối, Ổi..."
+                          className="flex-1 px-2.5 py-1 rounded-lg border border-neutral-300 text-xs focus:ring-1 focus:ring-emerald-500 focus:outline-none"
+                        />
+                      </div>
 
-                  {/* Quick Dessert suggestions */}
-                  <div className="flex flex-wrap items-center gap-1">
-                    <span className="text-[10px] text-neutral-400">Chọn nhanh:</span>
-                    {COMMON_DESSERTS.slice(0, 7).map((d) => (
-                      <button
-                        key={d}
-                        type="button"
-                        onClick={() => onUpdateMenuDishes(activeTabVendorId, { meatDessert: d })}
-                        className="text-[10px] px-1.5 py-0.5 rounded bg-neutral-100 hover:bg-emerald-100 text-neutral-600 hover:text-emerald-900 transition-colors cursor-pointer"
-                      >
-                        {d}
-                      </button>
-                    ))}
-                  </div>
+                      {/* Quick Dessert suggestions */}
+                      <div className="flex flex-wrap items-center gap-1">
+                        <span className="text-[10px] text-neutral-400">Chọn nhanh:</span>
+                        {COMMON_DESSERTS.slice(0, 7).map((d) => (
+                          <button
+                            key={d}
+                            type="button"
+                            onClick={() => onUpdateMenuDishes(activeTabVendorId, { meatDessert: d })}
+                            className="text-[10px] px-1.5 py-0.5 rounded bg-neutral-100 hover:bg-emerald-100 text-neutral-600 hover:text-emerald-900 transition-colors cursor-pointer"
+                          >
+                            {d}
+                          </button>
+                        ))}
+                      </div>
+                    </>
+                  )}
                 </div>
 
                 {/* Vegetarian Dishes Card */}
@@ -755,21 +926,23 @@ ${blocks.join('\n\n----------------------------------------\n\n')}`;
                     </button>
                   </div>
 
-                  {/* Veg Dessert Editor */}
-                  <div className="pt-2 border-t border-amber-100 flex flex-col sm:flex-row sm:items-center justify-between gap-2">
-                    <span className="text-xs font-bold text-amber-950 shrink-0">
-                      Tráng miệng chay:
-                    </span>
-                    <input
-                      type="text"
-                      value={activeTabMenu.vegDessert || ''}
-                      onChange={(e) =>
-                        onUpdateMenuDishes(activeTabVendorId, { vegDessert: cleanDishName(e.target.value) })
-                      }
-                      placeholder="VD: Sữa đậu nành, Ổi..."
-                      className="flex-1 px-2.5 py-1 rounded-lg border border-neutral-300 text-xs focus:ring-1 focus:ring-amber-500 focus:outline-none"
-                    />
-                  </div>
+                  {/* Veg Dessert Editor (Bữa tối hiển thị) */}
+                  {shiftInfo.isDinner && (
+                    <div className="pt-2 border-t border-amber-100 flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+                      <span className="text-xs font-bold text-amber-950 shrink-0">
+                        Tráng miệng chay:
+                      </span>
+                      <input
+                        type="text"
+                        value={activeTabMenu.vegDessert || ''}
+                        onChange={(e) =>
+                          onUpdateMenuDishes(activeTabVendorId, { vegDessert: cleanDishName(e.target.value) })
+                        }
+                        placeholder="VD: Sữa đậu nành, Ổi..."
+                        className="flex-1 px-2.5 py-1 rounded-lg border border-neutral-300 text-xs focus:ring-1 focus:ring-amber-500 focus:outline-none"
+                      />
+                    </div>
+                  )}
                 </div>
               </div>
             </div>
@@ -777,7 +950,7 @@ ${blocks.join('\n\n----------------------------------------\n\n')}`;
             {/* Bottom Actions of in-place editor */}
             <div className="flex items-center justify-between pt-2 border-t border-amber-200">
               <span className="text-xs text-amber-900 font-medium">
-                ✓ Các thay đổi đã được tự động lưu và đồng bộ trực tiếp vào báo cáo.
+                ✓ Các thay đổi đã được tự động lưu và đồng bộ trực tiếp vào báo cáo Lán Trại Hóc Môn {selectedKtx}.
               </span>
               <button
                 type="button"
@@ -797,7 +970,7 @@ ${blocks.join('\n\n----------------------------------------\n\n')}`;
             <div className="flex items-center justify-between">
               <div className="flex items-center gap-2 text-xs font-bold text-slate-900">
                 <Type className="w-4 h-4 text-slate-700" />
-                <span>Trình Soạn Thảo Văn Bản Tự Do (Chỉnh sửa tùy ý trước khi sao chép):</span>
+                <span>Trình Soạn Thảo Văn Bản Tự Do ({selectedKtx} - Chỉnh sửa tùy ý trước khi sao chép):</span>
               </div>
               <button
                 type="button"
@@ -808,7 +981,7 @@ ${blocks.join('\n\n----------------------------------------\n\n')}`;
                 className="text-xs text-slate-600 hover:text-slate-900 flex items-center gap-1 cursor-pointer font-medium"
               >
                 <RotateCcw className="w-3.5 h-3.5" />
-                <span>Khôi phục theo mẫu tự động</span>
+                <span>Khôi phục theo mẫu chuẩn</span>
               </button>
             </div>
 
@@ -831,7 +1004,7 @@ ${blocks.join('\n\n----------------------------------------\n\n')}`;
                 className="px-4 py-2 rounded-xl bg-teal-700 hover:bg-teal-800 text-white font-bold text-xs flex items-center gap-1.5 transition-colors cursor-pointer"
               >
                 {copiedAll ? <Check className="w-3.5 h-3.5" /> : <Copy className="w-3.5 h-3.5" />}
-                <span>{copiedAll ? 'Đã sao chép!' : 'Sao chép văn bản này'}</span>
+                <span>{copiedAll ? 'Đã sao chép!' : `Sao chép văn bản ${selectedKtx}`}</span>
               </button>
             </div>
           </div>
@@ -843,7 +1016,7 @@ ${blocks.join('\n\n----------------------------------------\n\n')}`;
             {/* Quick Action Bar above output */}
             <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 text-xs text-neutral-600">
               <span className="font-semibold text-neutral-800">
-                Nội dung văn bản chuẩn bị sẵn (Nhấp "Sao chép" để dán ngay vào Zalo/Viber nhóm):
+                Văn bản báo cáo chuẩn hóa ({selectedKtx} · {shift} · {dateStr}) - Nhấp "Sao chép" để dán ngay:
               </span>
               <div className="flex items-center gap-2">
                 <button
@@ -865,7 +1038,7 @@ ${blocks.join('\n\n----------------------------------------\n\n')}`;
                   <div className="flex items-center justify-between border-b border-neutral-200 pb-2.5">
                     <span className="font-bold text-teal-950 text-xs sm:text-sm flex items-center gap-2">
                       <Building2 className="w-4 h-4 text-teal-700" />
-                      <span>{activeVendors[0].name} ({shift} · {dateStr})</span>
+                      <span>{activeVendors[0].name} ({selectedKtx} · {shift} · {dateStr})</span>
                     </span>
                     <button
                       type="button"
@@ -886,7 +1059,7 @@ ${blocks.join('\n\n----------------------------------------\n\n')}`;
                   <div className="font-bold text-teal-950 border-b border-neutral-200 pb-3 flex flex-col sm:flex-row sm:items-center justify-between gap-2">
                     <span className="flex items-center gap-2 text-xs sm:text-sm">
                       <Sparkles className="w-4 h-4 text-teal-600" />
-                      <span>Báo cáo tổng hợp: {activeVendors.length} nhà cung cấp ({shift} · {dateStr})</span>
+                      <span>Báo cáo tổng hợp {selectedKtx}: {activeVendors.length} nhà cung cấp ({shift} · {dateStr} · {shiftInfo.price})</span>
                     </span>
                     <button
                       type="button"
@@ -894,7 +1067,7 @@ ${blocks.join('\n\n----------------------------------------\n\n')}`;
                       className="px-3.5 py-1.5 rounded-xl bg-teal-700 text-white hover:bg-teal-800 text-xs font-bold flex items-center gap-1.5 cursor-pointer transition-colors shadow-2xs"
                     >
                       {copiedAll ? <Check className="w-3.5 h-3.5 text-emerald-300" /> : <Copy className="w-3.5 h-3.5" />}
-                      <span>{copiedAll ? 'Đã sao chép tất cả!' : 'Sao chép toàn bộ báo cáo'}</span>
+                      <span>{copiedAll ? 'Đã sao chép tất cả!' : `Sao chép toàn bộ ${selectedKtx}`}</span>
                     </button>
                   </div>
 
@@ -910,7 +1083,7 @@ ${blocks.join('\n\n----------------------------------------\n\n')}`;
                             {index + 1}
                           </span>
                           <span className="font-bold text-neutral-900 text-xs sm:text-sm">
-                            {vendor.name} ({vendor.code})
+                            {vendor.name} ({vendor.code}) - {selectedKtx}
                           </span>
                         </div>
                         <div className="flex items-center gap-1.5">
@@ -947,7 +1120,7 @@ ${blocks.join('\n\n----------------------------------------\n\n')}`;
                       </div>
 
                       <pre className="font-sans whitespace-pre-wrap text-neutral-900 text-xs sm:text-sm leading-relaxed font-medium bg-[#fafbfc] p-3.5 rounded-lg border border-neutral-100">
-                        {buildVendorBlock(vendor, reportFormat)}
+                        {buildVendorBlock(vendor, reportFormat, selectedKtx)}
                       </pre>
                     </div>
                   ))}
@@ -962,7 +1135,7 @@ ${blocks.join('\n\n----------------------------------------\n\n')}`;
           <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-b border-neutral-200 pb-2">
             <span className="font-bold text-neutral-900 flex items-center gap-1.5 text-xs sm:text-sm">
               <Utensils className="w-4 h-4 text-teal-700" />
-              <span>Bảng kê chi tiết món ăn ca {shift} ({dayOfWeek} - {dateStr})</span>
+              <span>Bảng kê chi tiết món ăn ca {shift} ({dayOfWeek} - {dateStr} · {selectedKtx})</span>
             </span>
 
             {activeVendors.length > 1 && (
@@ -1003,7 +1176,7 @@ ${blocks.join('\n\n----------------------------------------\n\n')}`;
                     <span className="font-medium">{cleanDishName(dish)}</span>
                   </div>
                 ))}
-                {activeTabMenu.meatDessert && (
+                {shiftInfo.isDinner && activeTabMenu.meatDessert && (
                   <div className="flex items-center gap-2 pt-1 text-emerald-900 font-semibold border-t border-emerald-50 mt-1">
                     <span className="w-5 h-5 rounded-full bg-emerald-100 text-emerald-800 text-[10px] font-mono font-bold flex items-center justify-center shrink-0">
                       TM
@@ -1033,7 +1206,7 @@ ${blocks.join('\n\n----------------------------------------\n\n')}`;
                     <span className="font-medium">{cleanDishName(dish)}</span>
                   </div>
                 ))}
-                {activeTabMenu.vegDessert && (
+                {shiftInfo.isDinner && activeTabMenu.vegDessert && (
                   <div className="flex items-center gap-2 pt-1 text-amber-950 font-semibold border-t border-amber-50 mt-1">
                     <span className="w-5 h-5 rounded-full bg-amber-100 text-amber-900 text-[10px] font-mono font-bold flex items-center justify-center shrink-0">
                       TM
