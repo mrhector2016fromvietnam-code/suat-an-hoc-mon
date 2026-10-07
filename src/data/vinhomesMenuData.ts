@@ -44,10 +44,10 @@ export const cleanMenuObj = (m: DayShiftMenu): DayShiftMenu => {
       dayOfWeek: 'Thứ 2',
       dateStr: '05/10/2026',
       shift: 'Bữa sáng',
-      meatDishes: ['Cơm trắng', 'Món mặn theo ca'],
-      meatDessert: 'Trái cây theo mùa',
-      vegDishes: ['Cơm trắng', 'Món chay theo ca'],
-      vegDessert: 'Trái cây theo mùa',
+      meatDishes: [],
+      meatDessert: '',
+      vegDishes: [],
+      vegDessert: '',
       isWeighedOk: true
     };
   }

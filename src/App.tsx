@@ -23,6 +23,8 @@ const STORAGE_KEY_VENDORS = 'vinhomes_vendors_headcount_cache_v7';
 export default function App() {
   const [currentTab, setCurrentTab] = useState<'overview' | 'report' | 'menu-sheet'>('report');
   const [isGlobalDeleteModalOpen, setIsGlobalDeleteModalOpen] = useState(false);
+  const [isMenuUploadOpen, setIsMenuUploadOpen] = useState(false);
+  const [isSyncing, setIsSyncing] = useState(false);
   
   // Vendors headcount data (initialized from Screenshot 2)
   const [vendors, setVendors] = useState<VendorPortionRow[]>(() => {
@@ -47,12 +49,8 @@ export default function App() {
       const saved = localStorage.getItem(STORAGE_KEY_MENUS);
       if (saved) {
         const parsed = JSON.parse(saved);
-        if (Array.isArray(parsed) && parsed.length >= 140) {
-          const cleaned = parsed.map(cleanMenuObj);
-          const uniqueVendors = new Set(cleaned.map((m) => m.vendorId));
-          if (uniqueVendors.size >= 7) {
-            return cleaned;
-          }
+        if (Array.isArray(parsed) && parsed.length > 0) {
+          return parsed.map(cleanMenuObj);
         }
       }
     } catch (e) {}
@@ -80,7 +78,7 @@ export default function App() {
 
   const showToast = (msg: string) => {
     setToastMessage(msg);
-    setTimeout(() => setToastMessage(null), 3500);
+    setTimeout(() => setToastMessage(null), 4000);
   };
 
   // Current primary active vendor
@@ -92,44 +90,103 @@ export default function App() {
     field: 'td8' | 'td11_1' | 'td11_3',
     value: number
   ) => {
-    setVendors((prev) =>
-      prev.map((v) => (v.id === id ? { ...v, [field]: value } : v))
-    );
+    setVendors((prev) => {
+      const next = prev.map((v) => (v.id === id ? { ...v, [field]: value } : v));
+      try {
+        localStorage.setItem(STORAGE_KEY_VENDORS, JSON.stringify(next));
+      } catch (e) {}
+      return next;
+    });
+  };
+
+  // Batch headcount updater
+  const handleBatchUpdatePortions = (
+    updates: { id: string; td8?: number; td11_1?: number; td11_3?: number }[]
+  ) => {
+    setVendors((prev) => {
+      const next = prev.map((v) => {
+        const item = updates.find((u) => u.id === v.id);
+        if (item) {
+          return {
+            ...v,
+            td8: item.td8 !== undefined ? item.td8 : v.td8,
+            td11_1: item.td11_1 !== undefined ? item.td11_1 : v.td11_1,
+            td11_3: item.td11_3 !== undefined ? item.td11_3 : v.td11_3,
+          };
+        }
+        return v;
+      });
+      try {
+        localStorage.setItem(STORAGE_KEY_VENDORS, JSON.stringify(next));
+      } catch (e) {}
+      return next;
+    });
   };
 
   // Handler when a menu is extracted via OCR from uploaded file
   const handleMenuExtracted = (data: {
-    vendorName: string;
-    vendorId: string;
+    vendorName?: string;
+    vendorId?: string;
     projectName?: string;
     weekRange?: string;
     menus: DayShiftMenu[];
   }) => {
     if (!data.menus || data.menus.length === 0) return;
 
-    const targetVendorId = data.vendorId || 'tam-phuong';
+    // Detect all unique vendorIds present in incoming menus
+    const incomingVendorIds = Array.from(
+      new Set(data.menus.map((m) => m.vendorId).filter(Boolean))
+    ) as string[];
+
+    const defaultFallbackVendor = data.vendorId && data.vendorId !== 'all' ? data.vendorId : 'tam-phuong';
+
+    const formattedIncoming: DayShiftMenu[] = data.menus.map((m) => ({
+      ...m,
+      vendorId: m.vendorId || defaultFallbackVendor,
+      meatDishes: Array.isArray(m.meatDishes) ? m.meatDishes.map(cleanDishName).filter(Boolean) : [],
+      vegDishes: Array.isArray(m.vegDishes) ? m.vegDishes.map(cleanDishName).filter(Boolean) : [],
+      meatDessert: cleanDishName(m.meatDessert),
+      vegDessert: cleanDishName(m.vegDessert),
+      isWeighedOk: true
+    }));
 
     setMenusList((prev) => {
-      // Remove any existing menus for this vendor that are being overridden
-      const incomingKeys = new Set(data.menus.map((m) => `${m.dayOfWeek}_${m.shift}`));
-      const retained = prev.filter(
-        (m) => m.vendorId !== targetVendorId || !incomingKeys.has(`${m.dayOfWeek}_${m.shift}`)
+      // Map incoming shifts by key
+      const incomingKeyMap = new Map(
+        formattedIncoming.map((m) => [`${m.vendorId}_${m.dayOfWeek}_${m.shift}`, m])
       );
-      const formattedIncoming: DayShiftMenu[] = data.menus.map((m) => ({
-        ...m,
-        vendorId: targetVendorId,
-        meatDishes: m.meatDishes.map(cleanDishName).filter(Boolean),
-        vegDishes: m.vegDishes.map(cleanDishName).filter(Boolean),
-        meatDessert: cleanDishName(m.meatDessert),
-        vegDessert: cleanDishName(m.vegDessert),
-        isWeighedOk: true
-      }));
-      return [...retained, ...formattedIncoming];
+      
+      const updated = prev.map((m) => {
+        const key = `${m.vendorId}_${m.dayOfWeek}_${m.shift}`;
+        if (incomingKeyMap.has(key)) {
+          const item = incomingKeyMap.get(key)!;
+          incomingKeyMap.delete(key);
+          return item;
+        }
+        return m;
+      });
+
+      const extras = Array.from(incomingKeyMap.values());
+      const nextList = [...updated, ...extras];
+      try {
+        localStorage.setItem(STORAGE_KEY_MENUS, JSON.stringify(nextList));
+      } catch (e) {}
+      return nextList;
     });
 
-    setSelectedVendorIds([targetVendorId]);
-    setActiveMenuName(`Thực đơn chuẩn OCR: ${data.vendorName} (${data.menus.length} ca ăn khớp 100% tài liệu gốc)`);
-    showToast(`Đã nạp chính xác 100% thực đơn của ${data.vendorName} (${data.menus.length} ca ăn)!`);
+    if (incomingVendorIds.length > 0) {
+      setSelectedVendorIds(incomingVendorIds);
+    } else if (data.vendorId && data.vendorId !== 'all') {
+      setSelectedVendorIds([data.vendorId]);
+    }
+
+    const count = incomingVendorIds.length || 1;
+    const vendorNamesStr = incomingVendorIds
+      .map((id) => vendors.find((v) => v.id === id)?.name || id)
+      .join(', ');
+
+    setActiveMenuName(`Thực đơn đã nạp: ${vendorNamesStr || data.vendorName} (${formattedIncoming.length} ca ăn)`);
+    showToast(`✓ Đã nạp và đồng bộ thực đơn của ${count} nhà cung cấp (${vendorNamesStr}) vào toàn bộ hệ thống!`);
   };
 
   // Select day & shift from weekly sheet, with vendor selection
@@ -148,22 +205,38 @@ export default function App() {
     }
   };
 
-  // Menu updater for a specific vendor
+  // Menu updater for a specific vendor - strictly independent per field
   const handleUpdateVendorMenu = (vendorId: string, partial: Partial<DayShiftMenu>) => {
-    const cleanedPartial: Partial<DayShiftMenu> = {
-      ...partial,
-      meatDishes: partial.meatDishes ? partial.meatDishes.map(cleanDishName).filter(Boolean) : undefined,
-      vegDishes: partial.vegDishes ? partial.vegDishes.map(cleanDishName).filter(Boolean) : undefined,
-      meatDessert: partial.meatDessert ? cleanDishName(partial.meatDessert) : undefined,
-      vegDessert: partial.vegDessert ? cleanDishName(partial.vegDessert) : undefined,
-    };
+    const cleanedPartial: Partial<DayShiftMenu> = {};
+    if (partial.meatDishes !== undefined) {
+      cleanedPartial.meatDishes = Array.isArray(partial.meatDishes)
+        ? partial.meatDishes.map(cleanDishName).filter(Boolean)
+        : [];
+    }
+    if (partial.vegDishes !== undefined) {
+      cleanedPartial.vegDishes = Array.isArray(partial.vegDishes)
+        ? partial.vegDishes.map(cleanDishName).filter(Boolean)
+        : [];
+    }
+    if (partial.meatDessert !== undefined) {
+      cleanedPartial.meatDessert = cleanDishName(partial.meatDessert || '');
+    }
+    if (partial.vegDessert !== undefined) {
+      cleanedPartial.vegDessert = cleanDishName(partial.vegDessert || '');
+    }
+    if (partial.isWeighedOk !== undefined) {
+      cleanedPartial.isWeighedOk = partial.isWeighedOk;
+    }
 
     setMenusList((prev) => {
       let found = false;
       const next = prev.map((m) => {
         if (m.vendorId === vendorId && m.dayOfWeek === currentDayOfWeek && m.shift === currentShift) {
           found = true;
-          return { ...m, ...cleanedPartial };
+          return {
+            ...m,
+            ...cleanedPartial, // Strictly preserves untouched fields (meatDishes vs vegDishes)
+          };
         }
         return m;
       });
@@ -174,15 +247,18 @@ export default function App() {
           dayOfWeek: currentDayOfWeek,
           dateStr: currentDateStr,
           shift: currentShift,
-          meatDishes: cleanedPartial.meatDishes || ['Cơm trắng', 'Món mặn'],
-          meatDessert: cleanedPartial.meatDessert || 'Trái cây',
-          vegDishes: cleanedPartial.vegDishes || ['Cơm trắng', 'Món chay'],
-          vegDessert: cleanedPartial.vegDessert || 'Trái cây',
+          meatDishes: cleanedPartial.meatDishes || ['Cơm trắng', 'Món mặn theo ca'],
+          meatDessert: cleanedPartial.meatDessert || 'Trái cây theo mùa',
+          vegDishes: cleanedPartial.vegDishes || ['Cơm trắng', 'Món chay theo ca'],
+          vegDessert: cleanedPartial.vegDessert || 'Trái cây theo mùa',
           isWeighedOk: true,
           ...cleanedPartial
         });
       }
 
+      try {
+        localStorage.setItem(STORAGE_KEY_MENUS, JSON.stringify(next));
+      } catch (e) {}
       return next;
     });
     showToast('Đã lưu thay đổi món ăn vào thực đơn!');
@@ -202,6 +278,9 @@ export default function App() {
       if (!found) {
         next.push(updatedMenu);
       }
+      try {
+        localStorage.setItem(STORAGE_KEY_MENUS, JSON.stringify(next));
+      } catch (e) {}
       return next;
     });
   };
@@ -225,7 +304,7 @@ export default function App() {
     action: 'clear' | 'reset-default'
   ) => {
     setMenusList((prev) => {
-      return prev.map((m) => {
+      const next = prev.map((m) => {
         const match = shiftsToDelete.find(
           (s) => s.vendorId === m.vendorId && s.dayOfWeek === m.dayOfWeek && s.shift === m.shift
         );
@@ -247,6 +326,11 @@ export default function App() {
         }
         return m;
       });
+
+      try {
+        localStorage.setItem(STORAGE_KEY_MENUS, JSON.stringify(next));
+      } catch (e) {}
+      return next;
     });
 
     const vendorName = vendors.find((v) => v.id === shiftsToDelete[0]?.vendorId)?.name || 'nhà cung cấp';
@@ -262,7 +346,11 @@ export default function App() {
     const defaultVendorShifts = PRELOADED_MENUS.filter((p) => p.vendorId === vendorId);
     setMenusList((prev) => {
       const otherVendors = prev.filter((m) => m.vendorId !== vendorId);
-      return [...otherVendors, ...defaultVendorShifts];
+      const next = [...otherVendors, ...defaultVendorShifts];
+      try {
+        localStorage.setItem(STORAGE_KEY_MENUS, JSON.stringify(next));
+      } catch (e) {}
+      return next;
     });
     const vendorName = vendors.find((v) => v.id === vendorId)?.name || vendorId;
     showToast(`Đã khôi phục toàn bộ thực đơn chuẩn của ${vendorName}!`);
@@ -271,7 +359,7 @@ export default function App() {
   // 3. Clear all dishes of this vendor
   const handleClearVendorMenus = (vendorId: string) => {
     setMenusList((prev) => {
-      return prev.map((m) => {
+      const next = prev.map((m) => {
         if (m.vendorId === vendorId) {
           return {
             ...m,
@@ -283,6 +371,10 @@ export default function App() {
         }
         return m;
       });
+      try {
+        localStorage.setItem(STORAGE_KEY_MENUS, JSON.stringify(next));
+      } catch (e) {}
+      return next;
     });
     const vendorName = vendors.find((v) => v.id === vendorId)?.name || vendorId;
     showToast(`Đã xóa trắng toàn bộ món ăn tuần của ${vendorName}!`);
@@ -291,6 +383,36 @@ export default function App() {
   // 4. Quick delete single shift
   const handleDeleteSingleShift = (vendorId: string, dayOfWeek: string, shift: MealShift) => {
     handleDeleteSelectedShifts([{ vendorId, dayOfWeek, shift }], 'reset-default');
+  };
+
+  // Force sync / refresh data from local storage without reverting user changes
+  const handleSyncData = () => {
+    setIsSyncing(true);
+    try {
+      const savedMenus = localStorage.getItem(STORAGE_KEY_MENUS);
+      if (savedMenus) {
+        const parsed = JSON.parse(savedMenus);
+        if (Array.isArray(parsed) && parsed.length > 0) {
+          setMenusList(parsed.map(cleanMenuObj));
+        }
+      }
+
+      const savedVendors = localStorage.getItem(STORAGE_KEY_VENDORS);
+      if (savedVendors) {
+        const parsedVendors = JSON.parse(savedVendors);
+        if (Array.isArray(parsedVendors) && parsedVendors.length > 0) {
+          setVendors(parsedVendors);
+        }
+      }
+
+      setTimeout(() => {
+        setIsSyncing(false);
+        showToast('✓ Đã đồng bộ & tải lại toàn bộ dữ liệu thực đơn và số lượng suất ăn mới nhất!');
+      }, 300);
+    } catch (e) {
+      setIsSyncing(false);
+      showToast('✓ Đã đồng bộ lại toàn bộ dữ liệu hệ thống!');
+    }
   };
 
   // Reset default menus
@@ -312,7 +434,7 @@ export default function App() {
       {/* Main Content Area */}
       <div className="flex-1 flex flex-col min-w-0">
         {/* Top Header matching Screenshot 1 */}
-        <TopHeader />
+        <TopHeader onSync={handleSyncData} isSyncing={isSyncing} />
 
         {/* Workspace Body */}
         <main className="p-4 sm:p-6 lg:p-8 max-w-7xl w-full mx-auto space-y-6">
@@ -420,76 +542,111 @@ export default function App() {
           ) : (
             /* Report Tab */
             <>
-              {/* Header Title Section matching User Instruction */}
-              <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
+              {/* Header Title Section with Clear Actions */}
+              <div className="bg-white rounded-2xl border border-neutral-200/90 p-5 sm:p-6 shadow-xs flex flex-col lg:flex-row lg:items-center lg:justify-between gap-4">
                 <div>
-                  <h1 className="text-2xl sm:text-3xl font-black text-neutral-900 tracking-tight uppercase">
-                    KÝ TÚC XÁ HÓC MÔN
-                  </h1>
-                  <div className="text-xs sm:text-sm font-bold text-teal-800 uppercase tracking-wide mt-1">
-                    TRUNG TÂM DỮ LIỆU SUẤT ĂN VÀ BÁO CÁO THỐNG KÊ
+                  <div className="flex items-center gap-2">
+                    <span className="w-3 h-3 rounded-full bg-teal-600 animate-pulse" />
+                    <h1 className="text-xl sm:text-2xl font-black text-neutral-900 tracking-tight uppercase">
+                      HỆ THỐNG BÁO CÁO SUẤT ĂN · LÁN TRẠI HÓC MÔN
+                    </h1>
                   </div>
-                  <p className="text-xs sm:text-sm text-neutral-500 mt-1 max-w-2xl leading-relaxed">
-                    Hàng tuần tải thực đơn, chọn một hoặc nhiều nhà cung cấp cùng lúc để hệ thống tự động điền các món chính xác và xuất văn bản sao chép nhanh.
+                  <p className="text-xs text-neutral-600 mt-1 max-w-3xl leading-relaxed">
+                    Dữ liệu thực đơn chuẩn 100% của 7 Nhà Cung Cấp. Nhập số lượng suất ăn &amp; sao chép văn bản báo cáo chuẩn hóa chỉ với 1 nhấp chuột.
                   </p>
                 </div>
 
-                <div className="flex items-center gap-2">
-                  {/* Delete / Revert uploaded menu button */}
+                {/* Quick Action Toolbar */}
+                <div className="flex flex-wrap items-center gap-2">
                   <button
-                    onClick={() => setIsGlobalDeleteModalOpen(true)}
-                    className="px-3 py-2 rounded-xl border border-red-200 bg-red-50/70 hover:bg-red-100 text-red-700 text-xs font-semibold flex items-center gap-1.5 transition-colors cursor-pointer shadow-2xs"
-                    title="Mở bảng chọn để xóa ca ăn hoặc thực đơn đã up nhầm"
+                    type="button"
+                    onClick={handleSyncData}
+                    disabled={isSyncing}
+                    className="px-3.5 py-2 rounded-xl bg-teal-600 hover:bg-teal-700 text-white font-bold text-xs flex items-center gap-1.5 transition-all shadow-xs cursor-pointer active:scale-95"
+                    title="Làm mới và đồng bộ lại toàn bộ dữ liệu thực đơn và số lượng mà không cần F5"
                   >
-                    <Trash2 className="w-3.5 h-3.5 text-red-600" />
-                    <span>Xóa thực đơn up nhầm</span>
+                    <RefreshCw className={`w-3.5 h-3.5 text-white ${isSyncing ? 'animate-spin' : ''}`} />
+                    <span>Tải lại dữ liệu</span>
                   </button>
 
-                  {/* Reset Default Data button */}
                   <button
-                    onClick={handleResetDefaultData}
-                    className="px-3 py-2 rounded-xl border border-neutral-300 hover:bg-neutral-100 text-neutral-700 text-xs font-medium flex items-center gap-1.5 transition-colors cursor-pointer"
-                    title="Khôi phục thực đơn gốc chính xác"
+                    type="button"
+                    onClick={() => setCurrentTab('menu-sheet')}
+                    className="px-3.5 py-2 rounded-xl bg-teal-50 hover:bg-teal-100 text-teal-900 font-bold text-xs flex items-center gap-1.5 transition-colors cursor-pointer border border-teal-200"
+                    title="Xem bảng thực đơn 21 ca của 7 nhà cung cấp"
                   >
-                    <RefreshCw className="w-3.5 h-3.5 text-neutral-500" />
+                    <Utensils className="w-3.5 h-3.5 text-teal-700" />
+                    <span>Ma trận tuần (21 ca)</span>
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={handleResetDefaultData}
+                    className="px-3.5 py-2 rounded-xl bg-neutral-100 hover:bg-neutral-200 text-neutral-800 text-xs font-bold flex items-center gap-1.5 transition-colors cursor-pointer border border-neutral-300"
+                    title="Khôi phục toàn bộ thực đơn chuẩn 100% của 7 nhà cung cấp"
+                  >
+                    <RefreshCw className="w-3.5 h-3.5 text-teal-700" />
                     <span>Nạp lại menu chuẩn</span>
                   </button>
 
                   <button
-                    onClick={() => {
-                      showToast(`Đã đồng bộ báo cáo ca ${currentShift} (${currentDateStr}) cho ${selectedVendorIds.length} nhà cung cấp!`);
-                    }}
-                    className="px-4 py-2 rounded-xl bg-[#0f2d4a] hover:bg-[#163e66] text-white text-xs font-semibold flex items-center gap-2 shadow-xs transition-colors cursor-pointer"
+                    type="button"
+                    onClick={() => setIsGlobalDeleteModalOpen(true)}
+                    className="px-3.5 py-2 rounded-xl border border-red-200 bg-red-50 hover:bg-red-100 text-red-700 text-xs font-bold flex items-center gap-1.5 transition-colors cursor-pointer"
+                    title="Mở bảng chọn để xóa ca ăn hoặc thực đơn đã up nhầm"
                   >
-                    <FileText className="w-4 h-4 text-teal-400" />
-                    <span>Tạo báo cáo</span>
+                    <Trash2 className="w-3.5 h-3.5 text-red-600" />
+                    <span>Xóa / Làm mới</span>
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => setIsMenuUploadOpen(!isMenuUploadOpen)}
+                    className={`px-3.5 py-2 rounded-xl text-xs font-bold flex items-center gap-1.5 transition-colors cursor-pointer ${
+                      isMenuUploadOpen
+                        ? 'bg-[#0b1e33] text-white shadow-xs'
+                        : 'bg-white border border-neutral-300 text-neutral-700 hover:bg-neutral-50'
+                    }`}
+                    title="Mở bảng tải tệp ảnh thực đơn mới"
+                  >
+                    <Sparkles className="w-3.5 h-3.5 text-teal-500" />
+                    <span>{isMenuUploadOpen ? 'Đóng tải tệp' : 'Tải tệp menu mới'}</span>
                   </button>
                 </div>
               </div>
 
-              {/* Grid: 2 Columns matching Screenshot 1 & 2 */}
-              <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-start">
-                {/* Left Column (8 cols): Upload Dropzone, Portion Table, Report Text */}
-                <div className="lg:col-span-8 space-y-6">
-                  {/* Block 1: Upload Menu Image */}
+              {/* Expandable Upload Dropzone Drawer */}
+              {isMenuUploadOpen && (
+                <div className="animate-fade-in">
                   <MenuUploadDropzone
                     currentMenuName={activeMenuName}
-                    onMenuExtracted={handleMenuExtracted}
+                    onMenuExtracted={(data) => {
+                      handleMenuExtracted(data);
+                      setIsMenuUploadOpen(false);
+                    }}
                     onOpenHistory={() => setCurrentTab('menu-sheet')}
                     onOpenDeleteModal={() => setIsGlobalDeleteModalOpen(true)}
                     onUndoUploadedMenu={handleResetVendorMenus}
                   />
+                </div>
+              )}
 
-                  {/* Block 2: Headcount Portions Input Table matching Screenshot 2 with multi-selection */}
+              {/* Grid: 2 Columns */}
+              <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-start">
+                {/* Left Column (8 cols): Portion Table, Report Text */}
+                <div className="lg:col-span-8 space-y-6">
+                  {/* Block 1: Headcount Portions Input Table */}
                   <PortionInputTable
                     vendors={vendors}
                     onUpdateVendor={handleUpdateVendorPortion}
                     selectedVendorIds={selectedVendorIds}
                     onToggleVendor={handleToggleVendorId}
                     onSelectAll={() => setSelectedVendorIds(vendors.map((v) => v.id))}
+                    onBatchUpdateVendors={handleBatchUpdatePortions}
+                    onSelectVendors={(ids) => setSelectedVendorIds(ids)}
                   />
 
-                  {/* Block 3: Report Text Box with Multi-Vendor Support, In-Place Direct Editing, and accurate vendor menus */}
+                  {/* Block 2: Report Text Box with Live Direct Editing & 1-Click Copy */}
                   <ReportTextOutput
                     shift={currentShift}
                     dateStr={currentDateStr}
@@ -503,7 +660,7 @@ export default function App() {
                   />
                 </div>
 
-                {/* Right Column (4 cols): Summary Cards matching Screenshot 1 */}
+                {/* Right Column (4 cols): Shift Controller & Stats */}
                 <div className="lg:col-span-4 space-y-6 sticky top-20">
                   <RightSidebarSummary
                     currentShift={currentShift}

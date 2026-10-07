@@ -1,9 +1,8 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { 
   Copy, Check, CheckSquare, Square, Edit3, Sparkles, Building2, 
-  Utensils, RotateCcw, Save, Type, Eye, Plus, X, SlidersHorizontal, 
-  FileCheck, ShieldCheck, Printer, CheckCircle2, ChevronRight, Hash,
-  Layers, MapPin
+  Utensils, RotateCcw, Plus, X, FileCheck, CheckCircle2, Hash,
+  Trash2, AlertCircle, RefreshCw, Layers
 } from 'lucide-react';
 import { VendorPortionRow, DayShiftMenu, MealShift } from '../types/report';
 import { getMenuForVendorAndShift, cleanDishName, PRELOADED_MENUS } from '../data/vinhomesMenuData';
@@ -22,7 +21,7 @@ interface ReportTextOutputProps {
   onUpdateVendorPortion?: (id: string, field: 'td8' | 'td11_1' | 'td11_3', value: number) => void;
 }
 
-// Preset common desserts for 1-click quick selection
+// Preset common desserts for quick selection
 const COMMON_DESSERTS = [
   'Dưa hấu', 'Chuối', 'Ổi', 'Táo xanh', 'Sữa chua', 'Sữa đậu nành', 
   'Thạch rau câu', 'Quýt', 'Thanh long', 'Cam sành', 'Nước sâm'
@@ -45,33 +44,44 @@ export const ReportTextOutput: React.FC<ReportTextOutputProps> = ({
   // KTX Selection: 'KTX1' | 'KTX2' (Default: 'KTX1')
   const [selectedKtx, setSelectedKtx] = useState<'KTX1' | 'KTX2'>('KTX1');
 
-  // Editor view mode: 'preview' (standard view), 'interactive' (in-place field editor), 'raw' (free textarea)
-  const [editorMode, setEditorMode] = useState<'preview' | 'interactive' | 'raw'>('preview');
-  
-  // Report format template: 'standard' | 'compact' | 'table'
-  const [reportFormat, setReportFormat] = useState<'standard' | 'compact' | 'table'>('standard');
-
-  // Active vendor tab when editing
+  // Active vendor tab when inspecting/editing dishes
   const [activeTabVendorId, setActiveTabVendorId] = useState<string>(
     selectedVendorIds[0] || 'tam-phuong'
   );
 
+  // Dedicated isolated states for Meat (Mặn) and Veg (Chay) dishes
+  const [manItems, setManItems] = useState<string[]>([]);
+  const [chayItems, setChayItems] = useState<string[]>([]);
+  const [manDessert, setManDessert] = useState<string>('');
+  const [chayDessert, setChayDessert] = useState<string>('');
+
   // Custom quality/weighing status text
   const [customQualityNote, setCustomQualityNote] = useState<string>('Cân định lượng: Đạt');
 
-  // Custom raw text override if user is in 'raw' mode
-  const [customRawText, setCustomRawText] = useState<string>('');
-  const [isRawOverridden, setIsRawOverridden] = useState<boolean>(false);
-
-  // New dish input state
+  // New dish inputs
   const [newMeatDishInput, setNewMeatDishInput] = useState<string>('');
   const [newVegDishInput, setNewVegDishInput] = useState<string>('');
+
+  // Editable dish index tracker for in-place renaming
+  const [editingMeatIndex, setEditingMeatIndex] = useState<number | null>(null);
+  const [editingMeatVal, setEditingMeatVal] = useState<string>('');
+  const [editingVegIndex, setEditingVegIndex] = useState<number | null>(null);
+  const [editingVegVal, setEditingVegVal] = useState<string>('');
 
   useEffect(() => {
     if (selectedVendorIds.length > 0 && !selectedVendorIds.includes(activeTabVendorId)) {
       setActiveTabVendorId(selectedVendorIds[0]);
     }
   }, [selectedVendorIds, activeTabVendorId]);
+
+  // Synchronize isolated states when active vendor, day, shift or menusList changes
+  useEffect(() => {
+    const currentMenu = getMenuForVendorAndShift(menusList, activeTabVendorId, dayOfWeek, shift as MealShift);
+    setManItems(Array.isArray(currentMenu.meatDishes) ? currentMenu.meatDishes.map(cleanDishName).filter(Boolean) : []);
+    setChayItems(Array.isArray(currentMenu.vegDishes) ? currentMenu.vegDishes.map(cleanDishName).filter(Boolean) : []);
+    setManDessert(cleanDishName(currentMenu.meatDessert || ''));
+    setChayDessert(cleanDishName(currentMenu.vegDessert || ''));
+  }, [activeTabVendorId, dayOfWeek, shift, menusList]);
 
   // Active vendors list
   const activeVendors = useMemo(() => {
@@ -98,11 +108,6 @@ export const ReportTextOutput: React.FC<ReportTextOutputProps> = ({
     }
   };
 
-  // Get active menu for the currently focused vendor tab
-  const activeTabMenu = useMemo(() => {
-    return getMenuForVendorAndShift(menusList, activeTabVendorId, dayOfWeek, shift as MealShift);
-  }, [menusList, activeTabVendorId, dayOfWeek, shift]);
-
   // Active vendor obj
   const activeTabVendorObj = allVendors.find((v) => v.id === activeTabVendorId) || activeVendors[0] || allVendors[0];
 
@@ -124,51 +129,10 @@ export const ReportTextOutput: React.FC<ReportTextOutputProps> = ({
   };
 
   /**
-   * Helper: Build single vendor report text strictly matching user real-world template:
-   * 1. Bữa sáng:
-   *    Báo cáo Anh/Chị: Lán trại Hóc Môn [Tên KTX] phục vụ suất ăn sáng ngày [Ngày/Tháng/Năm]
-   *    • Tổng cộng: [Số lượng] suất
-   *    • Đơn giá: 20.000đ
-   *    NCC: [Tên nhà cung cấp]
-   *    • Tổng suất ăn: [Số lượng] suất
-   *    TĐ 8: [Số lượng] suất
-   *    TĐ 11.1: [Số lượng] suất
-   *    TĐ 11.3: [Số lượng] suất
-   *    • Suất ăn mặn: [Danh sách món mặn]
-   *    • Suất ăn chay: [Danh sách món chay]
-   *    Cân định lượng: Đạt
-   *
-   * 2. Bữa trưa:
-   *    Báo cáo Anh/Chị: Lán trại Hóc Môn [Tên KTX] phục vụ suất ăn trưa ngày [Ngày/Tháng/Năm]
-   *    • Tổng cộng: [Số lượng] suất
-   *    • Đơn giá: 40.000đ
-   *    NCC: [Tên nhà cung cấp]
-   *    • Tổng suất ăn: [Số lượng] suất
-   *    TĐ 8: [Số lượng] suất
-   *    TĐ 11.1: [Số lượng] suất
-   *    TĐ 11.3: [Số lượng] suất
-   *    • Suất ăn mặn: [Danh sách món mặn]
-   *    • Suất ăn chay: [Danh sách món chay]
-   *    Cân định lượng: Đạt
-   *
-   * 3. Bữa tối:
-   *    Báo cáo Anh/Chị: Lán trại Hóc Môn [Tên KTX] phục vụ suất ăn tối ngày [Ngày/Tháng/Năm]
-   *    • Tổng cộng: [Số lượng] suất
-   *    • Đơn giá: 40.000đ
-   *    NCC: [Tên nhà cung cấp]
-   *    • Tổng suất ăn: [Số lượng] suất
-   *    TĐ 8: [Số lượng] suất
-   *    TĐ 11.1: [Số lượng] suất
-   *    TĐ 11.3: [Số lượng] suất
-   *    • Suất ăn mặn: [Danh sách món mặn]
-   *    • Tráng miệng mặn: [Món tráng miệng]
-   *    • Suất ăn chay: [Danh sách món chay]
-   *    • Tráng miệng chay: [Món tráng miệng]
-   *    Cân định lượng: Đạt
+   * Helper: Build single vendor report text strictly matching user real-world template
    */
   const buildVendorBlock = (
     vendor: VendorPortionRow, 
-    format: 'standard' | 'compact' | 'table' = 'standard',
     ktxName: string = selectedKtx
   ) => {
     const shiftInfo = getShiftDetails(shift);
@@ -183,37 +147,6 @@ export const ReportTextOutput: React.FC<ReportTextOutputProps> = ({
     const meatDessertClean = cleanDishName(vendorMenu.meatDessert);
     const vegDessertClean = cleanDishName(vendorMenu.vegDessert);
 
-    if (format === 'compact') {
-      const dessertPart = shiftInfo.isDinner
-        ? (meatDessertClean ? ` | TM: ${meatDessertClean}` : '')
-        : '';
-      return `[LÁN TRẠI HÓC MÔN ${ktxName.toUpperCase()} - ${vendor.name.toUpperCase()} - ${shift.toUpperCase()} ${dateStr}]
-• Tổng: ${vendorTotal} suất (Đơn giá: ${shiftInfo.price}) · TĐ8: ${vendor.td8}, TĐ11.1: ${vendor.td11_1}, TĐ11.3: ${vendor.td11_3}
-• Mặn: ${meatDishesStr || 'Chưa cập nhật'}${dessertPart}
-• Chay: ${vegDishesStr || 'Chưa cập nhật'}${shiftInfo.isDinner && vegDessertClean ? ` | TM Chay: ${vegDessertClean}` : ''}
-• ${customQualityNote}`;
-    }
-
-    if (format === 'table') {
-      return `========================================
-LÁN TRẠI HÓC MÔN ${ktxName.toUpperCase()}
-NHÀ CUNG CẤP: ${vendor.name.toUpperCase()} (${vendor.code})
-----------------------------------------
-Thời gian: ${shift} · ${dayOfWeek} (${dateStr})
-Tổng số suất: ${vendorTotal} suất  (Đơn giá: ${shiftInfo.price})
-Chi tiết tổ đội phân bổ:
-  + TĐ 8:    ${td8Str}
-  + TĐ 11.1: ${td11_1Str}
-  + TĐ 11.3: ${td11_3Str}
-----------------------------------------
-THỰC ĐƠN CHI TIẾT:
-  [Suất ăn mặn]:  ${meatDishesStr || 'Chưa có'}
-  ${shiftInfo.isDinner ? `[Tráng miệng mặn]: ${meatDessertClean || 'Không'}\n  ` : ''}[Suất ăn chay]:  ${vegDishesStr || 'Chưa có'}
-  ${shiftInfo.isDinner ? `[Tráng miệng chay]: ${vegDessertClean || 'Không'}\n  ` : ''}----------------------------------------
-Kiểm tra: ${customQualityNote}
-========================================`;
-    }
-
     // Standard Vietnamese Real-World Format strictly matching Prompt
     if (shiftInfo.isMorning) {
       // 1. Bữa sáng (Không có tráng miệng, đơn giá 20.000đ)
@@ -225,8 +158,8 @@ NCC: ${vendor.name}
 TĐ 8: ${td8Str}
 TĐ 11.1: ${td11_1Str}
 TĐ 11.3: ${td11_3Str}
-• Suất ăn mặn: ${meatDishesStr}
-• Suất ăn chay: ${vegDishesStr}
+• Suất ăn mặn: ${meatDishesStr || 'Chưa cập nhật'}
+• Suất ăn chay: ${vegDishesStr || 'Chưa cập nhật'}
 ${customQualityNote}`;
     }
 
@@ -240,8 +173,8 @@ NCC: ${vendor.name}
 TĐ 8: ${td8Str}
 TĐ 11.1: ${td11_1Str}
 TĐ 11.3: ${td11_3Str}
-• Suất ăn mặn: ${meatDishesStr}
-• Suất ăn chay: ${vegDishesStr}
+• Suất ăn mặn: ${meatDishesStr || 'Chưa cập nhật'}
+• Suất ăn chay: ${vegDishesStr || 'Chưa cập nhật'}
 ${customQualityNote}`;
     }
 
@@ -265,139 +198,563 @@ NCC: ${vendor.name}
 TĐ 8: ${td8Str}
 TĐ 11.1: ${td11_1Str}
 TĐ 11.3: ${td11_3Str}
-• Suất ăn mặn: ${meatDishesStr}
+• Suất ăn mặn: ${meatDishesStr || 'Chưa cập nhật'}
 ${dessertLines.join('\n')}
-• Suất ăn chay: ${vegDishesStr}
+• Suất ăn chay: ${vegDishesStr || 'Chưa cập nhật'}
 ${vegDessertLine}
 ${customQualityNote}`;
   };
 
   // Helper: Build combined report text across all active vendors
   const generatedFullReport = useMemo(() => {
-    const shiftInfo = getShiftDetails(shift);
-    const grandTotal = activeVendors.reduce((sum, v) => sum + v.td8 + v.td11_1 + v.td11_3, 0);
+    if (activeVendors.length === 0) {
+      return 'Vui lòng chọn ít nhất 1 Nhà Cung Cấp để tạo báo cáo.';
+    }
 
     if (activeVendors.length === 1) {
-      return buildVendorBlock(activeVendors[0], reportFormat, selectedKtx);
+      return buildVendorBlock(activeVendors[0], selectedKtx);
     }
 
-    const blocks = activeVendors.map((vendor) => buildVendorBlock(vendor, reportFormat, selectedKtx));
-
-    if (reportFormat === 'compact') {
-      return `=== BÁO CÁO TỔNG HỢP - LÁN TRẠI HÓC MÔN ${selectedKtx.toUpperCase()} (${shift.toUpperCase()} · ${dateStr}) ===
-TỔNG CỘNG: ${grandTotal} suất (${activeVendors.length} NCC) · Đơn giá: ${shiftInfo.price}
-
-${blocks.join('\n\n')}`;
-    }
-
-    if (reportFormat === 'table') {
-      return `########################################
-BÁO CÁO TỔNG HỢP SUẤT ĂN - LÁN TRẠI HÓC MÔN ${selectedKtx.toUpperCase()}
-THỜI GIAN: ${shift.toUpperCase()} (${dateStr}) - ĐƠN GIÁ: ${shiftInfo.price}
-TỔNG CỘNG TOÀN KHU: ${grandTotal} SUẤT (${activeVendors.length} NHÀ CUNG CẤP)
-########################################
-
-${blocks.join('\n\n')}`;
-    }
-
-    // Standard Vietnamese Combined Report Header
-    return `BÁO CÁO TỔNG HỢP CÁC NHÀ CUNG CẤP - LÁN TRẠI HÓC MÔN ${selectedKtx.toUpperCase()} - ${shift.toUpperCase()} NGÀY ${dateStr}
-• TỔNG CỘNG TOÀN BỘ (${activeVendors.length} NCC): ${grandTotal} suất
-• Đơn giá: ${shiftInfo.price}
-
-${blocks.join('\n\n----------------------------------------\n\n')}`;
-  }, [activeVendors, shift, dateStr, dayOfWeek, menusList, customQualityNote, reportFormat, selectedKtx]);
-
-  // Sync custom raw text if not manually overridden
-  useEffect(() => {
-    if (!isRawOverridden) {
-      setCustomRawText(generatedFullReport);
-    }
-  }, [generatedFullReport, isRawOverridden]);
-
-  const displayedReportText = isRawOverridden ? customRawText : generatedFullReport;
+    const blocks = activeVendors.map((vendor) => buildVendorBlock(vendor, selectedKtx));
+    return blocks.join('\n\n----------------------------------------\n\n');
+  }, [activeVendors, shift, dateStr, dayOfWeek, menusList, customQualityNote, selectedKtx]);
 
   // Copy full text
   const handleCopyAll = () => {
-    navigator.clipboard.writeText(displayedReportText);
+    navigator.clipboard.writeText(generatedFullReport);
     setCopiedAll(true);
     setTimeout(() => setCopiedAll(false), 2500);
   };
 
   // Copy single vendor text
   const handleCopySingle = (vendor: VendorPortionRow) => {
-    const text = buildVendorBlock(vendor, reportFormat, selectedKtx);
+    const text = buildVendorBlock(vendor, selectedKtx);
     navigator.clipboard.writeText(text);
     setCopiedVendorId(vendor.id);
     setTimeout(() => setCopiedVendorId(null), 2500);
   };
 
-  // Add meat dish
+  // 1. Independent Meat Dish Handlers (Tách biệt hoàn toàn cho Suất ăn mặn)
   const handleAddMeatDish = () => {
     if (!newMeatDishInput.trim()) return;
-    const currentDishes = activeTabMenu.meatDishes.map(cleanDishName);
     const newItems = newMeatDishInput.split(',').map((s) => cleanDishName(s.trim())).filter(Boolean);
-    onUpdateMenuDishes(activeTabVendorId, {
-      meatDishes: [...currentDishes, ...newItems]
+    if (newItems.length === 0) return;
+
+    setManItems((prev) => {
+      const updated = [...prev, ...newItems];
+      onUpdateMenuDishes(activeTabVendorId, { meatDishes: updated });
+      return updated;
     });
     setNewMeatDishInput('');
   };
 
-  // Remove meat dish
   const handleRemoveMeatDish = (index: number) => {
-    const nextDishes = activeTabMenu.meatDishes.filter((_, idx) => idx !== index);
-    onUpdateMenuDishes(activeTabVendorId, { meatDishes: nextDishes });
+    setManItems((prev) => {
+      const updated = prev.filter((_, idx) => idx !== index);
+      onUpdateMenuDishes(activeTabVendorId, { meatDishes: updated });
+      return updated;
+    });
   };
 
-  // Add veg dish
+  const handleSaveEditMeat = (index: number) => {
+    if (!editingMeatVal.trim()) {
+      handleRemoveMeatDish(index);
+      setEditingMeatIndex(null);
+      return;
+    }
+    const cleaned = cleanDishName(editingMeatVal);
+    setManItems((prev) => {
+      const updated = [...prev];
+      updated[index] = cleaned;
+      onUpdateMenuDishes(activeTabVendorId, { meatDishes: updated });
+      return updated;
+    });
+    setEditingMeatIndex(null);
+  };
+
+  const handleUpdateMeatDessert = (val: string) => {
+    const cleaned = cleanDishName(val);
+    setManDessert(cleaned);
+    onUpdateMenuDishes(activeTabVendorId, { meatDessert: cleaned });
+  };
+
+  // 2. Independent Veg Dish Handlers (Tách biệt hoàn toàn cho Suất ăn chay)
   const handleAddVegDish = () => {
     if (!newVegDishInput.trim()) return;
-    const currentDishes = activeTabMenu.vegDishes.map(cleanDishName);
     const newItems = newVegDishInput.split(',').map((s) => cleanDishName(s.trim())).filter(Boolean);
-    onUpdateMenuDishes(activeTabVendorId, {
-      vegDishes: [...currentDishes, ...newItems]
+    if (newItems.length === 0) return;
+
+    setChayItems((prev) => {
+      const updated = [...prev, ...newItems];
+      onUpdateMenuDishes(activeTabVendorId, { vegDishes: updated });
+      return updated;
     });
     setNewVegDishInput('');
   };
 
-  // Remove veg dish
   const handleRemoveVegDish = (index: number) => {
-    const nextDishes = activeTabMenu.vegDishes.filter((_, idx) => idx !== index);
-    onUpdateMenuDishes(activeTabVendorId, { vegDishes: nextDishes });
+    setChayItems((prev) => {
+      const updated = prev.filter((_, idx) => idx !== index);
+      onUpdateMenuDishes(activeTabVendorId, { vegDishes: updated });
+      return updated;
+    });
   };
 
-  // Reset current vendor menu to preloaded default
+  const handleSaveEditVeg = (index: number) => {
+    if (!editingVegVal.trim()) {
+      handleRemoveVegDish(index);
+      setEditingVegIndex(null);
+      return;
+    }
+    const cleaned = cleanDishName(editingVegVal);
+    setChayItems((prev) => {
+      const updated = [...prev];
+      updated[index] = cleaned;
+      onUpdateMenuDishes(activeTabVendorId, { vegDishes: updated });
+      return updated;
+    });
+    setEditingVegIndex(null);
+  };
+
+  const handleUpdateVegDessert = (val: string) => {
+    const cleaned = cleanDishName(val);
+    setChayDessert(cleaned);
+    onUpdateMenuDishes(activeTabVendorId, { vegDessert: cleaned });
+  };
+
+  // Reset current vendor menu to 100% authentic preloaded default
   const handleResetCurrentVendorMenu = () => {
     const defaultShift = PRELOADED_MENUS.find(
       (m) => m.vendorId === activeTabVendorId && m.dayOfWeek === dayOfWeek && m.shift === shift
     );
     if (defaultShift) {
+      const cleanedMeat = defaultShift.meatDishes.map(cleanDishName);
+      const cleanedVeg = defaultShift.vegDishes.map(cleanDishName);
+      const cleanedMeatDessert = cleanDishName(defaultShift.meatDessert);
+      const cleanedVegDessert = cleanDishName(defaultShift.vegDessert);
+
+      setManItems(cleanedMeat);
+      setChayItems(cleanedVeg);
+      setManDessert(cleanedMeatDessert);
+      setChayDessert(cleanedVegDessert);
+
       onUpdateMenuDishes(activeTabVendorId, {
-        meatDishes: defaultShift.meatDishes,
-        meatDessert: defaultShift.meatDessert,
-        vegDishes: defaultShift.vegDishes,
-        vegDessert: defaultShift.vegDessert,
+        meatDishes: cleanedMeat,
+        meatDessert: cleanedMeatDessert,
+        vegDishes: cleanedVeg,
+        vegDessert: cleanedVegDessert,
       });
     }
+  };
+
+  // Clear current vendor menu to empty
+  const handleClearCurrentVendorMenu = () => {
+    setManItems([]);
+    setChayItems([]);
+    setManDessert('');
+    setChayDessert('');
+    onUpdateMenuDishes(activeTabVendorId, {
+      meatDishes: [],
+      meatDessert: '',
+      vegDishes: [],
+      vegDessert: '',
+    });
   };
 
   const shiftInfo = getShiftDetails(shift);
 
   return (
-    <div className="bg-white rounded-2xl border border-neutral-200/90 shadow-sm overflow-hidden">
-      {/* Header bar with visual prestige & KTX Selector */}
-      <div className="p-5 sm:p-6 bg-gradient-to-r from-[#0b1e33] to-[#123154] text-white flex flex-col md:flex-row md:items-center justify-between gap-4">
-        <div>
+    <div className="space-y-6">
+      {/* SECTION 1: VISUAL MENU INSPECTOR & DIRECT INLINE EDITOR */}
+      <div className="bg-white rounded-2xl border border-neutral-200/90 shadow-sm overflow-hidden space-y-0">
+        {/* Header Bar */}
+        <div className="p-4 sm:p-5 bg-gradient-to-r from-[#0b1e33] to-[#123154] text-white flex flex-col md:flex-row md:items-center justify-between gap-3">
+          <div className="flex items-center gap-2.5">
+            <span className="w-8 h-8 rounded-xl bg-teal-500/20 border border-teal-500/30 text-teal-300 flex items-center justify-center font-bold">
+              <Utensils className="w-4 h-4" />
+            </span>
+            <div>
+              <div className="flex items-center gap-2">
+                <h3 className="text-sm sm:text-base font-bold text-white">
+                  Thực Đơn &amp; Chỉnh Sửa Trực Tiếp Món Ăn
+                </h3>
+                <span className="px-2 py-0.5 rounded bg-teal-400 text-neutral-950 font-bold text-[10px] font-mono">
+                  {shift} · {dayOfWeek} ({dateStr})
+                </span>
+              </div>
+              <p className="text-xs text-neutral-300 mt-0.5">
+                Xem chính xác món mặn &amp; món chay của từng nhà cung cấp. Nhấp vào tên món để sửa, bấm nút thêm/xóa trực tiếp.
+              </p>
+            </div>
+          </div>
+
+          <div className="flex items-center gap-2">
+            <button
+              type="button"
+              onClick={handleResetCurrentVendorMenu}
+              className="px-3 py-1.5 rounded-xl bg-white/10 hover:bg-white/20 text-teal-200 text-xs font-semibold flex items-center gap-1.5 transition-colors cursor-pointer border border-white/10"
+              title="Khôi phục thực đơn gốc chính xác theo hợp đồng"
+            >
+              <RefreshCw className="w-3.5 h-3.5" />
+              <span>Nạp lại menu gốc ({activeTabVendorObj.name})</span>
+            </button>
+            <button
+              type="button"
+              onClick={handleClearCurrentVendorMenu}
+              className="px-3 py-1.5 rounded-xl bg-red-500/20 hover:bg-red-500/30 text-red-200 text-xs font-semibold flex items-center gap-1.5 transition-colors cursor-pointer border border-red-500/30"
+              title="Xóa trắng món của nhà cung cấp này trong ca hiện tại"
+            >
+              <Trash2 className="w-3.5 h-3.5" />
+              <span>Xóa món ca này</span>
+            </button>
+          </div>
+        </div>
+
+        {/* Vendor Switcher Tabs */}
+        <div className="p-3 bg-neutral-50 border-b border-neutral-200 flex flex-wrap items-center justify-between gap-2">
+          <div className="flex flex-wrap items-center gap-1.5">
+            <span className="text-xs font-bold text-neutral-700 mr-1">Chọn NCC để xem/sửa:</span>
+            {allVendors.map((v) => {
+              const isSelected = selectedVendorIds.includes(v.id);
+              const isActive = activeTabVendorId === v.id;
+              const total = v.td8 + v.td11_1 + v.td11_3;
+
+              return (
+                <button
+                  key={v.id}
+                  type="button"
+                  onClick={() => setActiveTabVendorId(v.id)}
+                  className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-all cursor-pointer flex items-center gap-1.5 ${
+                    isActive
+                      ? 'bg-[#0b1e33] text-white shadow-xs'
+                      : 'bg-white border border-neutral-200 text-neutral-700 hover:bg-neutral-100'
+                  }`}
+                >
+                  <span className={`text-[10px] font-mono px-1 py-0.2 rounded ${
+                    isActive ? 'bg-teal-400 text-neutral-950' : 'bg-neutral-100 text-neutral-600'
+                  }`}>
+                    {v.code}
+                  </span>
+                  <span>{v.name}</span>
+                  {total > 0 && (
+                    <span className={`text-[10px] font-mono ${isActive ? 'text-teal-300' : 'text-neutral-400'}`}>
+                      ({total}s)
+                    </span>
+                  )}
+                </button>
+              );
+            })}
+          </div>
+
+          <div className="text-xs text-neutral-500 font-medium">
+            Đang xem: <strong className="text-teal-900 font-bold">{activeTabVendorObj.name}</strong> ({activeTabVendorObj.code})
+          </div>
+        </div>
+
+        {/* Live Dishes Editing Grid */}
+        <div className="p-5 sm:p-6 grid grid-cols-1 lg:grid-cols-2 gap-5">
+          {/* Column 1: Món Mặn */}
+          <div className="p-4 sm:p-5 rounded-2xl bg-emerald-50/40 border border-emerald-200 space-y-3 shadow-2xs">
+            <div className="flex items-center justify-between border-b border-emerald-200/80 pb-2.5">
+              <span className="text-xs sm:text-sm font-bold text-emerald-950 flex items-center gap-2">
+                <span className="w-3 h-3 rounded-full bg-emerald-600" />
+                <span>Suất ăn mặn: {activeTabVendorObj.name}</span>
+              </span>
+              <span className="text-xs font-bold text-emerald-800 bg-emerald-100 px-2 py-0.5 rounded-full font-mono">
+                {manItems.length} món
+              </span>
+            </div>
+
+            {/* List of meat dishes */}
+            <div className="space-y-1.5 min-h-[100px]">
+              {manItems.length === 0 ? (
+                <div className="p-4 rounded-xl border border-dashed border-emerald-200 text-center text-xs text-emerald-700">
+                  Chưa có món mặn. Hãy gõ tên món bên dưới và bấm "Thêm món" hoặc "Nạp lại menu gốc".
+                </div>
+              ) : (
+                manItems.map((dish, idx) => (
+                  <div
+                    key={idx}
+                    className="flex items-center justify-between p-2 rounded-xl bg-white border border-emerald-200/80 text-xs group hover:border-emerald-400 transition-all shadow-2xs"
+                  >
+                    <div className="flex items-center gap-2 flex-1 mr-2">
+                      <span className="w-5 h-5 rounded-full bg-emerald-100 text-emerald-800 text-[10px] font-mono font-bold flex items-center justify-center shrink-0">
+                        {idx + 1}
+                      </span>
+                      {editingMeatIndex === idx ? (
+                        <input
+                          type="text"
+                          autoFocus
+                          value={editingMeatVal}
+                          onChange={(e) => setEditingMeatVal(e.target.value)}
+                          onBlur={() => handleSaveEditMeat(idx)}
+                          onKeyDown={(e) => {
+                            if (e.key === 'Enter') handleSaveEditMeat(idx);
+                            if (e.key === 'Escape') setEditingMeatIndex(null);
+                          }}
+                          className="flex-1 px-2 py-1 rounded border border-emerald-400 text-xs font-semibold focus:outline-none"
+                        />
+                      ) : (
+                        <span
+                          onClick={() => {
+                            setEditingMeatIndex(idx);
+                            setEditingMeatVal(dish);
+                          }}
+                          className="font-semibold text-neutral-800 hover:text-emerald-900 cursor-pointer flex-1"
+                          title="Nhấp để đổi tên món"
+                        >
+                          {dish}
+                        </span>
+                      )}
+                    </div>
+
+                    <div className="flex items-center gap-1">
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setEditingMeatIndex(idx);
+                          setEditingMeatVal(dish);
+                        }}
+                        className="text-neutral-400 hover:text-neutral-700 p-1 cursor-pointer"
+                        title="Sửa tên món"
+                      >
+                        <Edit3 className="w-3.5 h-3.5" />
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => handleRemoveMeatDish(idx)}
+                        className="text-neutral-400 hover:text-red-600 p-1 cursor-pointer"
+                        title="Xóa món này"
+                      >
+                        <X className="w-3.5 h-3.5" />
+                      </button>
+                    </div>
+                  </div>
+                ))
+              )}
+            </div>
+
+            {/* Add Meat Dish Input */}
+            <div className="flex items-center gap-2 pt-2 border-t border-emerald-100">
+              <input
+                type="text"
+                value={newMeatDishInput}
+                onChange={(e) => setNewMeatDishInput(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter') {
+                    e.preventDefault();
+                    handleAddMeatDish();
+                  }
+                }}
+                placeholder="Nhập món mặn mới (hoặc gõ nhiều món cách nhau bởi dấu phẩy)..."
+                className="flex-1 px-3 py-1.5 rounded-xl border border-neutral-300 text-xs focus:ring-1 focus:ring-emerald-500 focus:outline-none bg-white"
+              />
+              <button
+                type="button"
+                onClick={handleAddMeatDish}
+                disabled={!newMeatDishInput.trim()}
+                className="px-3.5 py-1.5 rounded-xl bg-emerald-700 hover:bg-emerald-800 disabled:opacity-40 text-white font-bold text-xs flex items-center gap-1 cursor-pointer transition-colors shrink-0"
+              >
+                <Plus className="w-3.5 h-3.5" />
+                <span>Thêm</span>
+              </button>
+            </div>
+
+            {/* Meat Dessert (Bữa tối) */}
+            {shiftInfo.isDinner && (
+              <div className="pt-2 border-t border-emerald-200/80 space-y-1.5">
+                <div className="flex items-center justify-between text-xs">
+                  <span className="font-bold text-emerald-950">Tráng miệng mặn:</span>
+                  <span className="text-[10px] text-neutral-400">Gõ hoặc chọn nhanh:</span>
+                </div>
+                <input
+                  type="text"
+                  value={manDessert}
+                  onChange={(e) => handleUpdateMeatDessert(e.target.value)}
+                  placeholder="VD: Dưa hấu, Chuối, Ổi..."
+                  className="w-full px-3 py-1.5 rounded-xl border border-neutral-300 text-xs focus:ring-1 focus:ring-emerald-500 focus:outline-none bg-white"
+                />
+                <div className="flex flex-wrap items-center gap-1">
+                  {COMMON_DESSERTS.slice(0, 6).map((d) => (
+                    <button
+                      key={d}
+                      type="button"
+                      onClick={() => handleUpdateMeatDessert(d)}
+                      className="text-[10px] px-2 py-0.5 rounded-lg bg-white border border-emerald-200 hover:bg-emerald-100 text-emerald-900 transition-colors cursor-pointer"
+                    >
+                      {d}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            )}
+          </div>
+
+          {/* Column 2: Món Chay (Hoàn toàn độc lập) */}
+          <div className="p-4 sm:p-5 rounded-2xl bg-amber-50/40 border border-amber-200 space-y-3 shadow-2xs">
+            <div className="flex items-center justify-between border-b border-amber-200/80 pb-2.5">
+              <span className="text-xs sm:text-sm font-bold text-amber-950 flex items-center gap-2">
+                <span className="w-3 h-3 rounded-full bg-amber-600" />
+                <span>Suất ăn chay: {activeTabVendorObj.name}</span>
+              </span>
+              <span className="text-xs font-bold text-amber-800 bg-amber-100 px-2 py-0.5 rounded-full font-mono">
+                {chayItems.length} món
+              </span>
+            </div>
+
+            {/* List of veg dishes */}
+            <div className="space-y-1.5 min-h-[100px]">
+              {chayItems.length === 0 ? (
+                <div className="p-4 rounded-xl border border-dashed border-amber-200 text-center text-xs text-amber-700">
+                  Chưa có món chay. Hãy gõ tên món bên dưới và bấm "Thêm món" hoặc "Nạp lại menu gốc".
+                </div>
+              ) : (
+                chayItems.map((dish, idx) => (
+                  <div
+                    key={idx}
+                    className="flex items-center justify-between p-2 rounded-xl bg-white border border-amber-200/80 text-xs group hover:border-amber-400 transition-all shadow-2xs"
+                  >
+                    <div className="flex items-center gap-2 flex-1 mr-2">
+                      <span className="w-5 h-5 rounded-full bg-amber-100 text-amber-900 text-[10px] font-mono font-bold flex items-center justify-center shrink-0">
+                        {idx + 1}
+                      </span>
+                      {editingVegIndex === idx ? (
+                        <input
+                          type="text"
+                          autoFocus
+                          value={editingVegVal}
+                          onChange={(e) => setEditingVegVal(e.target.value)}
+                          onBlur={() => handleSaveEditVeg(idx)}
+                          onKeyDown={(e) => {
+                            if (e.key === 'Enter') handleSaveEditVeg(idx);
+                            if (e.key === 'Escape') setEditingVegIndex(null);
+                          }}
+                          className="flex-1 px-2 py-1 rounded border border-amber-400 text-xs font-semibold focus:outline-none"
+                        />
+                      ) : (
+                        <span
+                          onClick={() => {
+                            setEditingVegIndex(idx);
+                            setEditingVegVal(dish);
+                          }}
+                          className="font-semibold text-neutral-800 hover:text-amber-900 cursor-pointer flex-1"
+                          title="Nhấp để đổi tên món"
+                        >
+                          {dish}
+                        </span>
+                      )}
+                    </div>
+
+                    <div className="flex items-center gap-1">
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setEditingVegIndex(idx);
+                          setEditingVegVal(dish);
+                        }}
+                        className="text-neutral-400 hover:text-neutral-700 p-1 cursor-pointer"
+                        title="Sửa tên món"
+                      >
+                        <Edit3 className="w-3.5 h-3.5" />
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => handleRemoveVegDish(idx)}
+                        className="text-neutral-400 hover:text-red-600 p-1 cursor-pointer"
+                        title="Xóa món này"
+                      >
+                        <X className="w-3.5 h-3.5" />
+                      </button>
+                    </div>
+                  </div>
+                ))
+              )}
+            </div>
+
+            {/* Add Veg Dish Input */}
+            <div className="flex items-center gap-2 pt-2 border-t border-amber-100">
+              <input
+                type="text"
+                value={newVegDishInput}
+                onChange={(e) => setNewVegDishInput(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter') {
+                    e.preventDefault();
+                    handleAddVegDish();
+                  }
+                }}
+                placeholder="Nhập món chay mới (hoặc nhiều món cách nhau bởi dấu phẩy)..."
+                className="flex-1 px-3 py-1.5 rounded-xl border border-neutral-300 text-xs focus:ring-1 focus:ring-amber-500 focus:outline-none bg-white"
+              />
+              <button
+                type="button"
+                onClick={handleAddVegDish}
+                disabled={!newVegDishInput.trim()}
+                className="px-3.5 py-1.5 rounded-xl bg-amber-600 hover:bg-amber-700 disabled:opacity-40 text-white font-bold text-xs flex items-center gap-1 cursor-pointer transition-colors shrink-0"
+              >
+                <Plus className="w-3.5 h-3.5" />
+                <span>Thêm</span>
+              </button>
+            </div>
+
+            {/* Veg Dessert (Bữa tối) */}
+            {shiftInfo.isDinner && (
+              <div className="pt-2 border-t border-amber-200/80 space-y-1.5">
+                <div className="flex items-center justify-between text-xs">
+                  <span className="font-bold text-amber-950">Tráng miệng chay:</span>
+                  <span className="text-[10px] text-neutral-400">Gõ hoặc chọn nhanh:</span>
+                </div>
+                <input
+                  type="text"
+                  value={chayDessert}
+                  onChange={(e) => handleUpdateVegDessert(e.target.value)}
+                  placeholder="VD: Sữa đậu nành, Ổi, Sữa chua..."
+                  className="w-full px-3 py-1.5 rounded-xl border border-neutral-300 text-xs focus:ring-1 focus:ring-amber-500 focus:outline-none bg-white"
+                />
+                <div className="flex flex-wrap items-center gap-1">
+                  {COMMON_DESSERTS.slice(4, 10).map((d) => (
+                    <button
+                      key={d}
+                      type="button"
+                      onClick={() => handleUpdateVegDessert(d)}
+                      className="text-[10px] px-2 py-0.5 rounded-lg bg-white border border-amber-200 hover:bg-amber-100 text-amber-900 transition-colors cursor-pointer"
+                    >
+                      {d}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            )}
+          </div>
+        </div>
+      </div>
+
+      {/* SECTION 2: STANDARDIZED REPORT PREVIEW & MASTER 1-CLICK COPY */}
+      <div className="bg-white rounded-2xl border border-neutral-200/90 shadow-sm overflow-hidden space-y-4 p-5 sm:p-6">
+        {/* Header Bar */}
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-neutral-200 pb-4">
+          <div>
+            <div className="flex items-center gap-2">
+              <span className="w-2.5 h-2.5 rounded-full bg-teal-600 animate-pulse" />
+              <h3 className="text-base font-bold text-neutral-900">
+                Văn Bản Báo Cáo Chuẩn Hóa · Lán Trại Hóc Môn
+              </h3>
+            </div>
+            <p className="text-xs text-neutral-500 mt-0.5">
+              Tự động khớp 100% định dạng mẫu báo cáo thực tế cho <strong>{selectedKtx}</strong> ({shift} · {dateStr})
+            </p>
+          </div>
+
           <div className="flex flex-wrap items-center gap-2">
-            {/* KTX1 / KTX2 Selector Pills */}
-            <div className="inline-flex items-center p-0.5 rounded-lg bg-white/15 border border-white/20">
+            {/* KTX1 / KTX2 Switcher */}
+            <div className="flex items-center p-0.5 rounded-xl bg-neutral-100 border border-neutral-200 text-xs">
               <button
                 type="button"
                 onClick={() => setSelectedKtx('KTX1')}
-                className={`px-2.5 py-0.5 rounded text-xs font-black tracking-wide transition-all cursor-pointer ${
+                className={`px-3 py-1 rounded-lg font-bold transition-all cursor-pointer ${
                   selectedKtx === 'KTX1'
-                    ? 'bg-teal-400 text-neutral-950 shadow-xs'
-                    : 'text-white/80 hover:text-white'
+                    ? 'bg-teal-700 text-white shadow-xs'
+                    : 'text-neutral-600 hover:text-neutral-900'
                 }`}
               >
                 KTX 1
@@ -405,188 +762,56 @@ ${blocks.join('\n\n----------------------------------------\n\n')}`;
               <button
                 type="button"
                 onClick={() => setSelectedKtx('KTX2')}
-                className={`px-2.5 py-0.5 rounded text-xs font-black tracking-wide transition-all cursor-pointer ${
+                className={`px-3 py-1 rounded-lg font-bold transition-all cursor-pointer ${
                   selectedKtx === 'KTX2'
-                    ? 'bg-teal-400 text-neutral-950 shadow-xs'
-                    : 'text-white/80 hover:text-white'
+                    ? 'bg-teal-700 text-white shadow-xs'
+                    : 'text-neutral-600 hover:text-neutral-900'
                 }`}
               >
                 KTX 2
               </button>
             </div>
 
-            <span className="px-2 py-0.5 rounded bg-teal-500/20 text-teal-300 font-mono text-[11px] font-bold uppercase tracking-wider border border-teal-500/30">
-              {shift} · {dayOfWeek} ({dateStr})
-            </span>
-            <span className="px-2 py-0.5 rounded bg-amber-400/20 text-amber-300 font-mono text-[11px] font-bold border border-amber-400/30">
-              Đơn giá: {shiftInfo.price}
-            </span>
+            {/* Master Copy Button */}
+            <button
+              type="button"
+              onClick={handleCopyAll}
+              className={`px-5 py-2.5 rounded-xl font-bold text-xs flex items-center gap-2 transition-all shadow-md cursor-pointer ${
+                copiedAll
+                  ? 'bg-emerald-600 text-white shadow-emerald-900/20'
+                  : 'bg-teal-700 hover:bg-teal-600 text-white'
+              }`}
+            >
+              {copiedAll ? (
+                <>
+                  <Check className="w-4 h-4 text-emerald-200" />
+                  <span>Đã sao chép ({selectedKtx})!</span>
+                </>
+              ) : (
+                <>
+                  <Copy className="w-4 h-4 text-teal-200" />
+                  <span>Sao chép báo cáo {selectedKtx}</span>
+                </>
+              )}
+            </button>
           </div>
-
-          <h2 className="text-lg sm:text-xl font-black tracking-tight text-white mt-1.5 flex items-center gap-2">
-            <span>Báo Cáo Suất Ăn · Lán Trại Hóc Môn {selectedKtx}</span>
-          </h2>
-          <p className="text-xs text-neutral-300 mt-0.5">
-            Định dạng văn bản chuẩn 100% theo ca ăn (Sáng {getShiftDetails('sáng').price} · Trưa {getShiftDetails('trưa').price} · Tối {getShiftDetails('tối').price})
-          </p>
         </div>
 
-        {/* Top Control Buttons */}
-        <div className="flex flex-wrap items-center gap-2">
-          {/* Editor Mode Segmented Controls */}
-          <div className="flex items-center p-1 rounded-xl bg-black/25 border border-white/10 text-xs">
+        {/* Vendors Checkbox Selector for Report inclusion */}
+        <div className="p-3.5 rounded-xl bg-neutral-50/90 border border-neutral-200 space-y-2.5">
+          <div className="flex items-center justify-between text-xs">
+            <span className="font-bold text-neutral-800">
+              Nhà cung cấp đưa vào báo cáo ({selectedVendorIds.length}/{allVendors.length} NCC):
+            </span>
             <button
               type="button"
-              onClick={() => setEditorMode('preview')}
-              className={`px-3 py-1.5 rounded-lg font-bold transition-all cursor-pointer flex items-center gap-1.5 ${
-                editorMode === 'preview'
-                  ? 'bg-teal-500 text-neutral-950 shadow-xs'
-                  : 'text-neutral-300 hover:text-white'
-              }`}
+              onClick={handleToggleSelectAll}
+              className="text-teal-700 hover:text-teal-900 font-bold cursor-pointer"
             >
-              <Eye className="w-3.5 h-3.5" />
-              <span>Xem &amp; Sao chép</span>
-            </button>
-            <button
-              type="button"
-              onClick={() => setEditorMode('interactive')}
-              className={`px-3 py-1.5 rounded-lg font-bold transition-all cursor-pointer flex items-center gap-1.5 ${
-                editorMode === 'interactive'
-                  ? 'bg-amber-400 text-neutral-950 shadow-xs'
-                  : 'text-neutral-300 hover:text-white'
-              }`}
-              title="Chỉnh sửa trực tiếp từng món ăn, số lượng và tráng miệng"
-            >
-              <Edit3 className="w-3.5 h-3.5" />
-              <span>Sửa trực tiếp</span>
-            </button>
-            <button
-              type="button"
-              onClick={() => setEditorMode('raw')}
-              className={`px-3 py-1.5 rounded-lg font-bold transition-all cursor-pointer flex items-center gap-1.5 ${
-                editorMode === 'raw'
-                  ? 'bg-white text-neutral-900 shadow-xs'
-                  : 'text-neutral-300 hover:text-white'
-              }`}
-              title="Gõ hoặc dán văn bản tùy chỉnh tự do"
-            >
-              <Type className="w-3.5 h-3.5" />
-              <span>Sửa tự do</span>
+              {selectedVendorIds.length === allVendors.length ? 'Bỏ chọn tất cả' : 'Chọn tất cả (7 NCC)'}
             </button>
           </div>
 
-          {/* Master Copy Button */}
-          <button
-            type="button"
-            onClick={handleCopyAll}
-            className={`px-4 py-2.5 rounded-xl font-bold text-xs flex items-center gap-2 transition-all shadow-md cursor-pointer ${
-              copiedAll
-                ? 'bg-emerald-500 text-white'
-                : 'bg-teal-600 hover:bg-teal-500 text-white'
-            }`}
-          >
-            {copiedAll ? (
-              <>
-                <Check className="w-4 h-4" />
-                <span>Đã sao chép ({selectedKtx})!</span>
-              </>
-            ) : (
-              <>
-                <Copy className="w-4 h-4 text-teal-200" />
-                <span>Sao chép báo cáo {selectedKtx}</span>
-              </>
-            )}
-          </button>
-        </div>
-      </div>
-
-      {/* Main Content Area */}
-      <div className="p-5 sm:p-6 space-y-5">
-        {/* Vendor Selection Bar with Quick Toggle Pills & KTX Indicator */}
-        <div className="p-4 rounded-xl bg-neutral-50/90 border border-neutral-200 space-y-3">
-          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
-            <div className="flex items-center gap-2">
-              <span className="w-2 h-2 rounded-full bg-teal-600 animate-pulse" />
-              <span className="text-xs font-bold text-neutral-800">
-                Nhà cung cấp đưa vào báo cáo Lán Trại Hóc Môn <strong className="text-teal-900">{selectedKtx}</strong> ({selectedVendorIds.length}/{allVendors.length}):
-              </span>
-            </div>
-
-            <div className="flex items-center gap-2">
-              {/* KTX Fast Switch in Bar */}
-              <div className="flex items-center gap-1 bg-white border border-neutral-200 rounded-lg p-0.5 text-xs">
-                <button
-                  type="button"
-                  onClick={() => setSelectedKtx('KTX1')}
-                  className={`px-2.5 py-1 rounded font-bold transition-colors cursor-pointer ${
-                    selectedKtx === 'KTX1' ? 'bg-teal-700 text-white shadow-2xs' : 'text-neutral-600 hover:text-neutral-900'
-                  }`}
-                >
-                  KTX 1
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setSelectedKtx('KTX2')}
-                  className={`px-2.5 py-1 rounded font-bold transition-colors cursor-pointer ${
-                    selectedKtx === 'KTX2' ? 'bg-teal-700 text-white shadow-2xs' : 'text-neutral-600 hover:text-neutral-900'
-                  }`}
-                >
-                  KTX 2
-                </button>
-              </div>
-
-              {/* Template selector */}
-              <div className="flex items-center gap-1 bg-white border border-neutral-200 rounded-lg p-0.5 text-xs">
-                <button
-                  type="button"
-                  onClick={() => setReportFormat('standard')}
-                  className={`px-2 py-1 rounded font-medium transition-colors cursor-pointer ${
-                    reportFormat === 'standard' ? 'bg-[#0b1e33] text-white' : 'text-neutral-600 hover:text-neutral-900'
-                  }`}
-                >
-                  Chuẩn Mẫu
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setReportFormat('compact')}
-                  className={`px-2 py-1 rounded font-medium transition-colors cursor-pointer ${
-                    reportFormat === 'compact' ? 'bg-[#0b1e33] text-white' : 'text-neutral-600 hover:text-neutral-900'
-                  }`}
-                >
-                  Rút gọn
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setReportFormat('table')}
-                  className={`px-2 py-1 rounded font-medium transition-colors cursor-pointer ${
-                    reportFormat === 'table' ? 'bg-[#0b1e33] text-white' : 'text-neutral-600 hover:text-neutral-900'
-                  }`}
-                >
-                  Dạng Bảng
-                </button>
-              </div>
-
-              <button
-                type="button"
-                onClick={handleToggleSelectAll}
-                className="text-xs font-bold text-teal-700 hover:text-teal-900 flex items-center gap-1 px-2.5 py-1 rounded-lg hover:bg-teal-50 transition-colors cursor-pointer"
-              >
-                {selectedVendorIds.length === allVendors.length ? (
-                  <>
-                    <CheckSquare className="w-3.5 h-3.5 text-teal-700" />
-                    <span>Bỏ chọn tất cả</span>
-                  </>
-                ) : (
-                  <>
-                    <Square className="w-3.5 h-3.5 text-neutral-400" />
-                    <span>Chọn tất cả (7 NCC)</span>
-                  </>
-                )}
-              </button>
-            </div>
-          </div>
-
-          {/* Vendors Checkbox Buttons */}
           <div className="grid grid-cols-2 sm:grid-cols-4 md:grid-cols-7 gap-2">
             {allVendors.map((vendor) => {
               const isChecked = selectedVendorIds.includes(vendor.id);
@@ -603,7 +828,7 @@ ${blocks.join('\n\n----------------------------------------\n\n')}`;
                   className={`p-2.5 rounded-xl text-left border transition-all cursor-pointer flex flex-col justify-between ${
                     isChecked
                       ? 'bg-white border-teal-600 shadow-xs ring-2 ring-teal-500/20'
-                      : 'bg-white/60 border-neutral-200 hover:border-neutral-300 opacity-60'
+                      : 'bg-white/60 border-neutral-200 opacity-60'
                   }`}
                 >
                   <div className="flex items-center justify-between">
@@ -630,593 +855,64 @@ ${blocks.join('\n\n----------------------------------------\n\n')}`;
           </div>
         </div>
 
-        {/* MODE 1: INTERACTIVE IN-PLACE REPORT EDITOR */}
-        {editorMode === 'interactive' && (
-          <div className="p-5 rounded-2xl bg-amber-50/50 border border-amber-200/90 space-y-5 animate-fade-in">
-            {/* Header of in-place editor */}
-            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-amber-200 pb-3">
-              <div className="flex items-center gap-2">
-                <span className="w-7 h-7 rounded-lg bg-amber-500 text-white flex items-center justify-center text-xs font-bold shadow-xs">
-                  <Edit3 className="w-4 h-4" />
-                </span>
-                <div>
-                  <h3 className="text-sm font-bold text-neutral-900">
-                    Chỉnh Sửa Trực Tiếp Dữ Liệu Báo Cáo ({selectedKtx})
-                  </h3>
-                  <p className="text-xs text-neutral-600">
-                    Mọi thay đổi tại đây sẽ cập nhật trực tiếp vào văn bản báo cáo và hệ thống dữ liệu
-                  </p>
-                </div>
-              </div>
+        {/* Formatted Output Previews */}
+        <div className="space-y-4">
+          {activeVendors.map((vendor, index) => {
+            const vendorText = buildVendorBlock(vendor, selectedKtx);
 
-              {/* Vendor Tab Switcher inside editor */}
-              <div className="flex flex-wrap items-center gap-1.5">
-                <span className="text-xs text-neutral-500 font-medium">Đang sửa:</span>
-                {activeVendors.map((v) => (
-                  <button
-                    key={v.id}
-                    type="button"
-                    onClick={() => setActiveTabVendorId(v.id)}
-                    className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer ${
-                      activeTabVendorId === v.id
-                        ? 'bg-[#0b1e33] text-white shadow-xs'
-                        : 'bg-white border border-neutral-300 text-neutral-700 hover:bg-neutral-100'
-                    }`}
-                  >
-                    {v.name}
-                  </button>
-                ))}
-              </div>
-            </div>
-
-            {/* In-place Editable Form Grid */}
-            <div className="grid grid-cols-1 lg:grid-cols-12 gap-5">
-              {/* Left Column (Portion counts & Notes) */}
-              <div className="lg:col-span-4 space-y-4">
-                {/* Headcount direct editor */}
-                <div className="p-4 rounded-xl bg-white border border-amber-200 space-y-3 shadow-2xs">
-                  <span className="text-xs font-bold text-neutral-900 flex items-center gap-1.5 border-b border-neutral-100 pb-2">
-                    <Hash className="w-3.5 h-3.5 text-amber-600" />
-                    <span>Số suất ăn {activeTabVendorObj.name}:</span>
-                  </span>
-
-                  <div className="grid grid-cols-3 gap-2">
-                    <div>
-                      <label className="text-[11px] font-bold text-neutral-600 block mb-1">TĐ 8</label>
-                      <input
-                        type="number"
-                        min="0"
-                        value={activeTabVendorObj.td8 || ''}
-                        onChange={(e) =>
-                          onUpdateVendorPortion &&
-                          onUpdateVendorPortion(activeTabVendorId, 'td8', Math.max(0, parseInt(e.target.value) || 0))
-                        }
-                        className="w-full py-1.5 px-2 rounded-lg border border-neutral-300 text-center font-mono font-bold text-xs focus:ring-1 focus:ring-amber-500 focus:outline-none"
-                      />
-                    </div>
-                    <div>
-                      <label className="text-[11px] font-bold text-neutral-600 block mb-1">TĐ 11.1</label>
-                      <input
-                        type="number"
-                        min="0"
-                        value={activeTabVendorObj.td11_1 || ''}
-                        onChange={(e) =>
-                          onUpdateVendorPortion &&
-                          onUpdateVendorPortion(activeTabVendorId, 'td11_1', Math.max(0, parseInt(e.target.value) || 0))
-                        }
-                        className="w-full py-1.5 px-2 rounded-lg border border-neutral-300 text-center font-mono font-bold text-xs focus:ring-1 focus:ring-amber-500 focus:outline-none"
-                      />
-                    </div>
-                    <div>
-                      <label className="text-[11px] font-bold text-neutral-600 block mb-1">TĐ 11.3</label>
-                      <input
-                        type="number"
-                        min="0"
-                        value={activeTabVendorObj.td11_3 || ''}
-                        onChange={(e) =>
-                          onUpdateVendorPortion &&
-                          onUpdateVendorPortion(activeTabVendorId, 'td11_3', Math.max(0, parseInt(e.target.value) || 0))
-                        }
-                        className="w-full py-1.5 px-2 rounded-lg border border-neutral-300 text-center font-mono font-bold text-xs focus:ring-1 focus:ring-amber-500 focus:outline-none"
-                      />
-                    </div>
-                  </div>
-
-                  <div className="pt-2 border-t border-neutral-100 flex items-center justify-between text-xs">
-                    <span className="text-neutral-500 font-medium">Tổng suất {activeTabVendorObj.name}:</span>
-                    <strong className="text-teal-900 font-mono font-bold text-sm">
-                      {(activeTabVendorObj.td8 + activeTabVendorObj.td11_1 + activeTabVendorObj.td11_3).toLocaleString('vi-VN')} suất
-                    </strong>
-                  </div>
-                </div>
-
-                {/* Quality & Weighing Note Editor */}
-                <div className="p-4 rounded-xl bg-white border border-amber-200 space-y-2.5 shadow-2xs">
-                  <span className="text-xs font-bold text-neutral-900 flex items-center gap-1.5">
-                    <FileCheck className="w-3.5 h-3.5 text-emerald-600" />
-                    <span>Dòng ghi chú / Cân định lượng:</span>
-                  </span>
-                  <input
-                    type="text"
-                    value={customQualityNote}
-                    onChange={(e) => setCustomQualityNote(e.target.value)}
-                    placeholder="VD: Cân định lượng: Đạt"
-                    className="w-full px-3 py-1.5 rounded-lg border border-neutral-300 text-xs focus:ring-1 focus:ring-amber-500 focus:outline-none"
-                  />
-                  <div className="flex flex-wrap gap-1 pt-1">
-                    {[
-                      'Cân định lượng: Đạt',
-                      'Cân định lượng: Đạt 100%',
-                      'Cân định lượng: Đạt chuẩn - Đã lưu mẫu',
-                      'Nhiệt độ giao đạt >68°C - Định lượng chuẩn'
-                    ].map((note, i) => (
-                      <button
-                        key={i}
-                        type="button"
-                        onClick={() => setCustomQualityNote(note)}
-                        className="text-[10px] px-2 py-0.5 rounded bg-neutral-100 hover:bg-amber-100 text-neutral-700 hover:text-amber-950 transition-colors cursor-pointer"
-                      >
-                        {note}
-                      </button>
-                    ))}
-                  </div>
-                </div>
-
-                {/* Revert to original button */}
-                <button
-                  type="button"
-                  onClick={handleResetCurrentVendorMenu}
-                  className="w-full py-2 px-3 rounded-xl border border-neutral-300 bg-white hover:bg-neutral-100 text-neutral-700 font-semibold text-xs flex items-center justify-center gap-1.5 transition-colors cursor-pointer"
-                  title="Khôi phục thực đơn gốc của nhà cung cấp này"
-                >
-                  <RotateCcw className="w-3.5 h-3.5 text-neutral-500" />
-                  <span>Khôi phục menu gốc ({activeTabVendorObj.name})</span>
-                </button>
-              </div>
-
-              {/* Right Column (Dishes & Desserts Editor) */}
-              <div className="lg:col-span-8 space-y-4">
-                {/* Meat Dishes Card */}
-                <div className="p-4 rounded-xl bg-white border border-emerald-200 space-y-3 shadow-2xs">
-                  <div className="flex items-center justify-between border-b border-emerald-100 pb-2">
-                    <span className="text-xs font-bold text-emerald-950 flex items-center gap-1.5">
-                      <span className="w-2.5 h-2.5 rounded-full bg-emerald-500" />
-                      <span>Suất ăn mặn: {activeTabVendorObj.name} ({activeTabMenu.meatDishes.length} món)</span>
+            return (
+              <div
+                key={vendor.id}
+                className="p-4 sm:p-5 rounded-2xl bg-[#fafbfc] border border-neutral-200/90 shadow-2xs space-y-3"
+              >
+                <div className="flex items-center justify-between border-b border-neutral-200/80 pb-2.5">
+                  <div className="flex items-center gap-2">
+                    <span className="w-6 h-6 rounded-lg bg-teal-100 text-teal-900 font-bold text-xs flex items-center justify-center font-mono">
+                      {index + 1}
                     </span>
-                    <span className="text-[11px] text-neutral-500 font-mono">{shift}</span>
+                    <span className="font-bold text-neutral-900 text-xs sm:text-sm">
+                      {vendor.name} ({vendor.code}) - {selectedKtx}
+                    </span>
                   </div>
 
-                  {/* Meat Dishes Tag list with delete buttons */}
-                  <div className="flex flex-wrap gap-1.5">
-                    {activeTabMenu.meatDishes.map((dish, idx) => (
-                      <span
-                        key={idx}
-                        className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg bg-emerald-50 text-emerald-900 border border-emerald-200 text-xs font-medium"
-                      >
-                        <span className="text-[10px] font-mono text-emerald-700 opacity-70">{idx + 1}.</span>
-                        <span>{cleanDishName(dish)}</span>
-                        <button
-                          type="button"
-                          onClick={() => handleRemoveMeatDish(idx)}
-                          className="hover:text-red-600 hover:bg-emerald-100 rounded p-0.5 cursor-pointer ml-1"
-                          title="Xóa món này"
-                        >
-                          <X className="w-3 h-3" />
-                        </button>
-                      </span>
-                    ))}
-                  </div>
-
-                  {/* Add Meat Dish input */}
-                  <div className="flex items-center gap-2 pt-1">
-                    <input
-                      type="text"
-                      value={newMeatDishInput}
-                      onChange={(e) => setNewMeatDishInput(e.target.value)}
-                      onKeyDown={(e) => {
-                        if (e.key === 'Enter') {
-                          e.preventDefault();
-                          handleAddMeatDish();
-                        }
+                  <div className="flex items-center gap-2">
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setActiveTabVendorId(vendor.id);
+                        window.scrollTo({ top: 400, behavior: 'smooth' });
                       }}
-                      placeholder="Nhập tên món mặn (hoặc gõ nhiều món cách nhau bởi dấu phẩy)..."
-                      className="flex-1 px-3 py-1.5 rounded-lg border border-neutral-300 text-xs focus:ring-1 focus:ring-emerald-500 focus:outline-none"
-                    />
+                      className="px-2.5 py-1 rounded-lg bg-white border border-neutral-200 hover:bg-neutral-100 text-neutral-700 text-xs font-semibold flex items-center gap-1 cursor-pointer"
+                    >
+                      <Edit3 className="w-3 h-3 text-teal-700" />
+                      <span>Sửa món</span>
+                    </button>
                     <button
                       type="button"
-                      onClick={handleAddMeatDish}
-                      disabled={!newMeatDishInput.trim()}
-                      className="px-3 py-1.5 rounded-lg bg-emerald-700 hover:bg-emerald-800 disabled:opacity-40 text-white font-bold text-xs flex items-center gap-1 cursor-pointer transition-colors"
+                      onClick={() => handleCopySingle(vendor)}
+                      className="px-3 py-1 rounded-lg bg-neutral-200 hover:bg-neutral-300 text-neutral-900 text-xs font-bold flex items-center gap-1 transition-colors cursor-pointer"
                     >
-                      <Plus className="w-3.5 h-3.5" />
-                      <span>Thêm</span>
+                      {copiedVendorId === vendor.id ? (
+                        <>
+                          <Check className="w-3 h-3 text-emerald-600" />
+                          <span className="text-emerald-700">Đã chép!</span>
+                        </>
+                      ) : (
+                        <>
+                          <Copy className="w-3 h-3 text-neutral-700" />
+                          <span>Sao chép riêng</span>
+                        </>
+                      )}
                     </button>
                   </div>
-
-                  {/* Meat Dessert Editor (Bữa tối hiển thị dòng tráng miệng) */}
-                  {shiftInfo.isDinner && (
-                    <>
-                      <div className="pt-2 border-t border-emerald-100 flex flex-col sm:flex-row sm:items-center justify-between gap-2">
-                        <span className="text-xs font-bold text-emerald-900 shrink-0">
-                          Tráng miệng mặn:
-                        </span>
-                        <input
-                          type="text"
-                          value={activeTabMenu.meatDessert || ''}
-                          onChange={(e) =>
-                            onUpdateMenuDishes(activeTabVendorId, { meatDessert: cleanDishName(e.target.value) })
-                          }
-                          placeholder="VD: Dưa hấu, Chuối, Ổi..."
-                          className="flex-1 px-2.5 py-1 rounded-lg border border-neutral-300 text-xs focus:ring-1 focus:ring-emerald-500 focus:outline-none"
-                        />
-                      </div>
-
-                      {/* Quick Dessert suggestions */}
-                      <div className="flex flex-wrap items-center gap-1">
-                        <span className="text-[10px] text-neutral-400">Chọn nhanh:</span>
-                        {COMMON_DESSERTS.slice(0, 7).map((d) => (
-                          <button
-                            key={d}
-                            type="button"
-                            onClick={() => onUpdateMenuDishes(activeTabVendorId, { meatDessert: d })}
-                            className="text-[10px] px-1.5 py-0.5 rounded bg-neutral-100 hover:bg-emerald-100 text-neutral-600 hover:text-emerald-900 transition-colors cursor-pointer"
-                          >
-                            {d}
-                          </button>
-                        ))}
-                      </div>
-                    </>
-                  )}
                 </div>
 
-                {/* Vegetarian Dishes Card */}
-                <div className="p-4 rounded-xl bg-white border border-amber-200 space-y-3 shadow-2xs">
-                  <div className="flex items-center justify-between border-b border-amber-100 pb-2">
-                    <span className="text-xs font-bold text-amber-950 flex items-center gap-1.5">
-                      <span className="w-2.5 h-2.5 rounded-full bg-amber-500" />
-                      <span>Suất ăn chay: {activeTabVendorObj.name} ({activeTabMenu.vegDishes.length} món)</span>
-                    </span>
-                    <span className="text-[11px] text-neutral-500 font-mono">{shift}</span>
-                  </div>
-
-                  {/* Veg Dishes Tag list */}
-                  <div className="flex flex-wrap gap-1.5">
-                    {activeTabMenu.vegDishes.map((dish, idx) => (
-                      <span
-                        key={idx}
-                        className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg bg-amber-50 text-amber-950 border border-amber-200 text-xs font-medium"
-                      >
-                        <span className="text-[10px] font-mono text-amber-700 opacity-70">{idx + 1}.</span>
-                        <span>{cleanDishName(dish)}</span>
-                        <button
-                          type="button"
-                          onClick={() => handleRemoveVegDish(idx)}
-                          className="hover:text-red-600 hover:bg-amber-100 rounded p-0.5 cursor-pointer ml-1"
-                          title="Xóa món này"
-                        >
-                          <X className="w-3 h-3" />
-                        </button>
-                      </span>
-                    ))}
-                  </div>
-
-                  {/* Add Veg Dish input */}
-                  <div className="flex items-center gap-2 pt-1">
-                    <input
-                      type="text"
-                      value={newVegDishInput}
-                      onChange={(e) => setNewVegDishInput(e.target.value)}
-                      onKeyDown={(e) => {
-                        if (e.key === 'Enter') {
-                          e.preventDefault();
-                          handleAddVegDish();
-                        }
-                      }}
-                      placeholder="Nhập món chay mới..."
-                      className="flex-1 px-3 py-1.5 rounded-lg border border-neutral-300 text-xs focus:ring-1 focus:ring-amber-500 focus:outline-none"
-                    />
-                    <button
-                      type="button"
-                      onClick={handleAddVegDish}
-                      disabled={!newVegDishInput.trim()}
-                      className="px-3 py-1.5 rounded-lg bg-amber-600 hover:bg-amber-700 disabled:opacity-40 text-white font-bold text-xs flex items-center gap-1 cursor-pointer transition-colors"
-                    >
-                      <Plus className="w-3.5 h-3.5" />
-                      <span>Thêm</span>
-                    </button>
-                  </div>
-
-                  {/* Veg Dessert Editor (Bữa tối hiển thị) */}
-                  {shiftInfo.isDinner && (
-                    <div className="pt-2 border-t border-amber-100 flex flex-col sm:flex-row sm:items-center justify-between gap-2">
-                      <span className="text-xs font-bold text-amber-950 shrink-0">
-                        Tráng miệng chay:
-                      </span>
-                      <input
-                        type="text"
-                        value={activeTabMenu.vegDessert || ''}
-                        onChange={(e) =>
-                          onUpdateMenuDishes(activeTabVendorId, { vegDessert: cleanDishName(e.target.value) })
-                        }
-                        placeholder="VD: Sữa đậu nành, Ổi..."
-                        className="flex-1 px-2.5 py-1 rounded-lg border border-neutral-300 text-xs focus:ring-1 focus:ring-amber-500 focus:outline-none"
-                      />
-                    </div>
-                  )}
-                </div>
+                <pre className="font-sans whitespace-pre-wrap text-neutral-900 text-xs sm:text-sm leading-relaxed font-medium bg-white p-4 rounded-xl border border-neutral-200 select-text shadow-2xs">
+                  {vendorText}
+                </pre>
               </div>
-            </div>
-
-            {/* Bottom Actions of in-place editor */}
-            <div className="flex items-center justify-between pt-2 border-t border-amber-200">
-              <span className="text-xs text-amber-900 font-medium">
-                ✓ Các thay đổi đã được tự động lưu và đồng bộ trực tiếp vào báo cáo Lán Trại Hóc Môn {selectedKtx}.
-              </span>
-              <button
-                type="button"
-                onClick={() => setEditorMode('preview')}
-                className="px-4 py-2 rounded-xl bg-[#0b1e33] hover:bg-[#123154] text-white font-bold text-xs flex items-center gap-1.5 transition-colors cursor-pointer shadow-xs"
-              >
-                <Check className="w-4 h-4 text-teal-300" />
-                <span>Hoàn tất &amp; Xem báo cáo</span>
-              </button>
-            </div>
-          </div>
-        )}
-
-        {/* MODE 2: RAW TEXTAREA FREEDOM EDITOR */}
-        {editorMode === 'raw' && (
-          <div className="p-4 rounded-2xl bg-slate-50 border border-slate-300 space-y-3 animate-fade-in">
-            <div className="flex items-center justify-between">
-              <div className="flex items-center gap-2 text-xs font-bold text-slate-900">
-                <Type className="w-4 h-4 text-slate-700" />
-                <span>Trình Soạn Thảo Văn Bản Tự Do ({selectedKtx} - Chỉnh sửa tùy ý trước khi sao chép):</span>
-              </div>
-              <button
-                type="button"
-                onClick={() => {
-                  setIsRawOverridden(false);
-                  setCustomRawText(generatedFullReport);
-                }}
-                className="text-xs text-slate-600 hover:text-slate-900 flex items-center gap-1 cursor-pointer font-medium"
-              >
-                <RotateCcw className="w-3.5 h-3.5" />
-                <span>Khôi phục theo mẫu chuẩn</span>
-              </button>
-            </div>
-
-            <textarea
-              rows={14}
-              value={customRawText}
-              onChange={(e) => {
-                setCustomRawText(e.target.value);
-                setIsRawOverridden(true);
-              }}
-              className="w-full p-4 rounded-xl border border-slate-300 bg-white font-mono text-xs sm:text-sm text-neutral-900 leading-relaxed focus:outline-none focus:ring-2 focus:ring-teal-500 select-text"
-              placeholder="Nhập hoặc dán nội dung báo cáo tại đây..."
-            />
-
-            <div className="flex items-center justify-between text-xs text-slate-500">
-              <span>Số ký tự: {customRawText.length} · Số dòng: {customRawText.split('\n').length}</span>
-              <button
-                type="button"
-                onClick={handleCopyAll}
-                className="px-4 py-2 rounded-xl bg-teal-700 hover:bg-teal-800 text-white font-bold text-xs flex items-center gap-1.5 transition-colors cursor-pointer"
-              >
-                {copiedAll ? <Check className="w-3.5 h-3.5" /> : <Copy className="w-3.5 h-3.5" />}
-                <span>{copiedAll ? 'Đã sao chép!' : `Sao chép văn bản ${selectedKtx}`}</span>
-              </button>
-            </div>
-          </div>
-        )}
-
-        {/* MODE 3: PREVIEW & EASY ONE-CLICK COPY CARDS */}
-        {editorMode === 'preview' && (
-          <div className="space-y-4">
-            {/* Quick Action Bar above output */}
-            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 text-xs text-neutral-600">
-              <span className="font-semibold text-neutral-800">
-                Văn bản báo cáo chuẩn hóa ({selectedKtx} · {shift} · {dateStr}) - Nhấp "Sao chép" để dán ngay:
-              </span>
-              <div className="flex items-center gap-2">
-                <button
-                  type="button"
-                  onClick={() => setEditorMode('interactive')}
-                  className="text-xs font-bold text-amber-800 bg-amber-50 hover:bg-amber-100 border border-amber-300/80 px-2.5 py-1 rounded-lg flex items-center gap-1 cursor-pointer transition-colors"
-                >
-                  <Edit3 className="w-3 h-3 text-amber-700" />
-                  <span>Chỉnh sửa trực tiếp món/suất</span>
-                </button>
-              </div>
-            </div>
-
-            {/* Main Combined Report Container */}
-            <div className="relative rounded-2xl border border-neutral-200 bg-[#f8fafc] p-5 sm:p-6 font-sans text-xs sm:text-sm text-neutral-900 leading-relaxed select-text space-y-4 shadow-2xs">
-              {activeVendors.length === 1 ? (
-                /* Single Vendor Display */
-                <div className="space-y-3">
-                  <div className="flex items-center justify-between border-b border-neutral-200 pb-2.5">
-                    <span className="font-bold text-teal-950 text-xs sm:text-sm flex items-center gap-2">
-                      <Building2 className="w-4 h-4 text-teal-700" />
-                      <span>{activeVendors[0].name} ({selectedKtx} · {shift} · {dateStr})</span>
-                    </span>
-                    <button
-                      type="button"
-                      onClick={handleCopyAll}
-                      className="px-3 py-1.5 rounded-lg bg-neutral-200 hover:bg-neutral-300 text-neutral-900 text-xs font-bold flex items-center gap-1.5 cursor-pointer transition-colors"
-                    >
-                      {copiedAll ? <Check className="w-3.5 h-3.5 text-emerald-600" /> : <Copy className="w-3.5 h-3.5" />}
-                      <span>{copiedAll ? 'Đã sao chép!' : 'Sao chép văn bản'}</span>
-                    </button>
-                  </div>
-                  <pre className="font-sans whitespace-pre-wrap leading-relaxed text-neutral-900 text-xs sm:text-sm font-medium bg-white p-4 rounded-xl border border-neutral-200/80 shadow-2xs">
-                    {displayedReportText}
-                  </pre>
-                </div>
-              ) : (
-                /* Multiple Vendors Display */
-                <div className="space-y-4">
-                  <div className="font-bold text-teal-950 border-b border-neutral-200 pb-3 flex flex-col sm:flex-row sm:items-center justify-between gap-2">
-                    <span className="flex items-center gap-2 text-xs sm:text-sm">
-                      <Sparkles className="w-4 h-4 text-teal-600" />
-                      <span>Báo cáo tổng hợp {selectedKtx}: {activeVendors.length} nhà cung cấp ({shift} · {dateStr} · {shiftInfo.price})</span>
-                    </span>
-                    <button
-                      type="button"
-                      onClick={handleCopyAll}
-                      className="px-3.5 py-1.5 rounded-xl bg-teal-700 text-white hover:bg-teal-800 text-xs font-bold flex items-center gap-1.5 cursor-pointer transition-colors shadow-2xs"
-                    >
-                      {copiedAll ? <Check className="w-3.5 h-3.5 text-emerald-300" /> : <Copy className="w-3.5 h-3.5" />}
-                      <span>{copiedAll ? 'Đã sao chép tất cả!' : `Sao chép toàn bộ ${selectedKtx}`}</span>
-                    </button>
-                  </div>
-
-                  {/* Individual Vendor Blocks */}
-                  {activeVendors.map((vendor, index) => (
-                    <div
-                      key={vendor.id}
-                      className="p-4 sm:p-5 rounded-xl bg-white border border-neutral-200/90 shadow-2xs space-y-3 transition-all hover:border-teal-300"
-                    >
-                      <div className="flex items-center justify-between border-b border-neutral-100 pb-2">
-                        <div className="flex items-center gap-2">
-                          <span className="w-6 h-6 rounded-lg bg-teal-100 text-teal-900 font-bold text-xs flex items-center justify-center font-mono">
-                            {index + 1}
-                          </span>
-                          <span className="font-bold text-neutral-900 text-xs sm:text-sm">
-                            {vendor.name} ({vendor.code}) - {selectedKtx}
-                          </span>
-                        </div>
-                        <div className="flex items-center gap-1.5">
-                          <button
-                            type="button"
-                            onClick={() => {
-                              setActiveTabVendorId(vendor.id);
-                              setEditorMode('interactive');
-                            }}
-                            className="px-2 py-1 rounded-lg text-amber-700 hover:bg-amber-50 text-xs font-semibold flex items-center gap-1 transition-colors cursor-pointer border border-amber-200"
-                            title="Sửa trực tiếp cho NCC này"
-                          >
-                            <Edit3 className="w-3 h-3" />
-                            <span>Sửa NCC này</span>
-                          </button>
-                          <button
-                            type="button"
-                            onClick={() => handleCopySingle(vendor)}
-                            className="px-2.5 py-1 rounded-lg bg-neutral-100 hover:bg-neutral-200 text-neutral-800 text-xs font-bold flex items-center gap-1 transition-colors cursor-pointer"
-                          >
-                            {copiedVendorId === vendor.id ? (
-                              <>
-                                <Check className="w-3 h-3 text-emerald-600" />
-                                <span className="text-emerald-700">Đã chép!</span>
-                              </>
-                            ) : (
-                              <>
-                                <Copy className="w-3 h-3 text-teal-600" />
-                                <span>Sao chép riêng</span>
-                              </>
-                            )}
-                          </button>
-                        </div>
-                      </div>
-
-                      <pre className="font-sans whitespace-pre-wrap text-neutral-900 text-xs sm:text-sm leading-relaxed font-medium bg-[#fafbfc] p-3.5 rounded-lg border border-neutral-100">
-                        {buildVendorBlock(vendor, reportFormat, selectedKtx)}
-                      </pre>
-                    </div>
-                  ))}
-                </div>
-              )}
-            </div>
-          </div>
-        )}
-
-        {/* Bottom Dish Breakdown Table */}
-        <div className="p-4 sm:p-5 rounded-2xl bg-neutral-50/70 border border-neutral-200 space-y-3 text-xs">
-          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-b border-neutral-200 pb-2">
-            <span className="font-bold text-neutral-900 flex items-center gap-1.5 text-xs sm:text-sm">
-              <Utensils className="w-4 h-4 text-teal-700" />
-              <span>Bảng kê chi tiết món ăn ca {shift} ({dayOfWeek} - {dateStr} · {selectedKtx})</span>
-            </span>
-
-            {activeVendors.length > 1 && (
-              <div className="flex items-center gap-1.5 text-xs">
-                <span className="text-neutral-500 font-medium">Xem bảng kê của:</span>
-                <select
-                  value={activeTabVendorId}
-                  onChange={(e) => setActiveTabVendorId(e.target.value)}
-                  className="px-2.5 py-1 rounded-lg border border-neutral-300 bg-white font-bold text-teal-950 cursor-pointer text-xs focus:ring-1 focus:ring-teal-500 focus:outline-none"
-                >
-                  {activeVendors.map((v) => (
-                    <option key={v.id} value={v.id}>
-                      {v.name} ({v.code})
-                    </option>
-                  ))}
-                </select>
-              </div>
-            )}
-          </div>
-
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-            {/* Suất ăn mặn */}
-            <div className="p-3.5 rounded-xl border border-emerald-200 bg-white space-y-2 text-xs shadow-2xs">
-              <div className="flex items-center justify-between text-neutral-900 font-bold border-b border-emerald-100 pb-1.5">
-                <div className="flex items-center gap-1.5">
-                  <span className="w-2.5 h-2.5 rounded-full bg-emerald-500" />
-                  <span>Suất ăn mặn: {activeTabVendorObj.name}</span>
-                </div>
-                <span className="text-[11px] text-neutral-500 font-mono">{shift}</span>
-              </div>
-
-              <div className="space-y-1.5 text-neutral-800">
-                {activeTabMenu.meatDishes.map((dish, idx) => (
-                  <div key={idx} className="flex items-center gap-2">
-                    <span className="w-5 h-5 rounded-full bg-neutral-100 text-neutral-700 text-[10px] font-mono font-bold flex items-center justify-center shrink-0">
-                      {idx + 1}
-                    </span>
-                    <span className="font-medium">{cleanDishName(dish)}</span>
-                  </div>
-                ))}
-                {shiftInfo.isDinner && activeTabMenu.meatDessert && (
-                  <div className="flex items-center gap-2 pt-1 text-emerald-900 font-semibold border-t border-emerald-50 mt-1">
-                    <span className="w-5 h-5 rounded-full bg-emerald-100 text-emerald-800 text-[10px] font-mono font-bold flex items-center justify-center shrink-0">
-                      TM
-                    </span>
-                    <span>Tráng miệng: <strong>{cleanDishName(activeTabMenu.meatDessert)}</strong></span>
-                  </div>
-                )}
-              </div>
-            </div>
-
-            {/* Suất ăn chay */}
-            <div className="p-3.5 rounded-xl border border-amber-200 bg-white space-y-2 text-xs shadow-2xs">
-              <div className="flex items-center justify-between text-neutral-900 font-bold border-b border-amber-100 pb-1.5">
-                <div className="flex items-center gap-1.5">
-                  <span className="w-2.5 h-2.5 rounded-full bg-amber-500" />
-                  <span>Suất ăn chay: {activeTabVendorObj.name}</span>
-                </div>
-                <span className="text-[11px] text-neutral-500 font-mono">{shift}</span>
-              </div>
-
-              <div className="space-y-1.5 text-neutral-800">
-                {activeTabMenu.vegDishes.map((dish, idx) => (
-                  <div key={idx} className="flex items-center gap-2">
-                    <span className="w-5 h-5 rounded-full bg-neutral-100 text-neutral-700 text-[10px] font-mono font-bold flex items-center justify-center shrink-0">
-                      {idx + 1}
-                    </span>
-                    <span className="font-medium">{cleanDishName(dish)}</span>
-                  </div>
-                ))}
-                {shiftInfo.isDinner && activeTabMenu.vegDessert && (
-                  <div className="flex items-center gap-2 pt-1 text-amber-950 font-semibold border-t border-amber-50 mt-1">
-                    <span className="w-5 h-5 rounded-full bg-amber-100 text-amber-900 text-[10px] font-mono font-bold flex items-center justify-center shrink-0">
-                      TM
-                    </span>
-                    <span>Tráng miệng chay: <strong className="text-emerald-700">{cleanDishName(activeTabMenu.vegDessert)}</strong></span>
-                  </div>
-                )}
-              </div>
-            </div>
-          </div>
+            );
+          })}
         </div>
       </div>
     </div>

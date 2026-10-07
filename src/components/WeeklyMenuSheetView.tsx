@@ -1,12 +1,13 @@
 import React, { useState, useMemo } from 'react';
-import { DAYS_OF_WEEK, getMenuForVendorAndShift } from '../data/vinhomesMenuData';
+import { DAYS_OF_WEEK, getMenuForVendorAndShift, PRELOADED_MENUS } from '../data/vinhomesMenuData';
 import { MealShift, DayShiftMenu } from '../types/report';
 import { cleanDishName } from './ReportTextOutput';
 import { DeleteMenuModal } from './DeleteMenuModal';
 import { 
   Printer, Calendar, Check, Search, Filter, 
   ArrowRight, Edit3, Table, LayoutGrid, Eye, Plus, Sparkles,
-  Columns, RotateCcw, Building2, Utensils, Coffee, Moon, Sun, CheckCircle2, Trash2
+  Columns, RotateCcw, Building2, Utensils, Coffee, Moon, Sun, CheckCircle2, Trash2,
+  Save, X, Wand2, CheckSquare, Square
 } from 'lucide-react';
 
 interface WeeklyMenuSheetViewProps {
@@ -40,12 +41,15 @@ export const WeeklyMenuSheetView: React.FC<WeeklyMenuSheetViewProps> = ({
   const [toastMessage, setToastMessage] = useState<string | null>(null);
   const [isDeleteModalOpen, setIsDeleteModalOpen] = useState(false);
 
-  // Edit modal state
-  const [editingItem, setEditingItem] = useState<DayShiftMenu | null>(null);
-  const [editMeat, setEditMeat] = useState('');
-  const [editMeatDessert, setEditMeatDessert] = useState('');
-  const [editVeg, setEditVeg] = useState('');
-  const [editVegDessert, setEditVegDessert] = useState('');
+  // QUICK INLINE EDIT STATE (Chỉnh sửa nhanh trực tiếp tại ô)
+  const [isQuickEditModeActive, setIsQuickEditModeActive] = useState(false);
+  const [activeInlineCellKey, setActiveInlineCellKey] = useState<string | null>(null);
+  
+  // Temporary edit buffer for active inline cell
+  const [inlineMeat, setInlineMeat] = useState<string>('');
+  const [inlineVeg, setInlineVeg] = useState<string>('');
+  const [inlineMeatDessert, setInlineMeatDessert] = useState<string>('');
+  const [inlineVegDessert, setInlineVegDessert] = useState<string>('');
 
   const vendors = [
     { id: 'tam-phuong', name: 'Tám Phương', code: 'TP', color: 'bg-emerald-600', note: 'Suất ăn chuẩn & Bán trú' },
@@ -67,27 +71,55 @@ export const WeeklyMenuSheetView: React.FC<WeeklyMenuSheetViewProps> = ({
     setTimeout(() => setToastMessage(null), 3500);
   };
 
-  // Open edit modal
-  const openEdit = (menu: DayShiftMenu) => {
-    setEditingItem(menu);
-    setEditMeat(menu.meatDishes.join(', '));
-    setEditMeatDessert(menu.meatDessert);
-    setEditVeg(menu.vegDishes.join(', '));
-    setEditVegDessert(menu.vegDessert);
+  // Start inline editing for a specific cell
+  const startInlineEdit = (vendorId: string, day: string, shift: MealShift) => {
+    const currentMenu = getMenuForVendorAndShift(menusList, vendorId, day, shift);
+    const key = `${vendorId}_${day}_${shift}`;
+    setActiveInlineCellKey(key);
+    setInlineMeat(currentMenu.meatDishes.map(cleanDishName).join(', '));
+    setInlineVeg(currentMenu.vegDishes.map(cleanDishName).join(', '));
+    setInlineMeatDessert(cleanDishName(currentMenu.meatDessert));
+    setInlineVegDessert(cleanDishName(currentMenu.vegDessert));
   };
 
-  const handleSaveModal = () => {
-    if (!editingItem) return;
+  // Save active inline edit directly
+  const saveInlineEdit = (vendorId: string, day: string, shift: MealShift) => {
+    const dayObj = DAYS_OF_WEEK.find((d) => d.day === day);
     const updated: DayShiftMenu = {
-      ...editingItem,
-      meatDishes: editMeat.split(',').map((s) => s.trim()).filter(Boolean),
-      meatDessert: editMeatDessert.trim(),
-      vegDishes: editVeg.split(',').map((s) => s.trim()).filter(Boolean),
-      vegDessert: editVegDessert.trim(),
+      vendorId,
+      dayOfWeek: day,
+      dateStr: dayObj?.date || '05/10/2026',
+      shift,
+      meatDishes: inlineMeat.split(',').map((s) => cleanDishName(s.trim())).filter(Boolean),
+      meatDessert: cleanDishName(inlineMeatDessert),
+      vegDishes: inlineVeg.split(',').map((s) => cleanDishName(s.trim())).filter(Boolean),
+      vegDessert: cleanDishName(inlineVegDessert),
+      isWeighedOk: true
     };
     onUpdateMenu(updated);
-    setEditingItem(null);
-    showToast(`Đã lưu cập nhật món cho ${updated.dayOfWeek} (${updated.shift}) của ${currentVendorObj.name}!`);
+    setActiveInlineCellKey(null);
+    showToast(`✓ Đã lưu trực tiếp món cho ${day} (${shift})!`);
+  };
+
+  // Cancel inline editing
+  const cancelInlineEdit = () => {
+    setActiveInlineCellKey(null);
+  };
+
+  // Revert single shift in inline edit to preloaded default
+  const revertShiftToDefault = (vendorId: string, day: string, shift: MealShift) => {
+    const defaultShift = PRELOADED_MENUS.find(
+      (m) => m.vendorId === vendorId && m.dayOfWeek === day && m.shift === shift
+    );
+    if (defaultShift) {
+      setInlineMeat(defaultShift.meatDishes.map(cleanDishName).join(', '));
+      setInlineVeg(defaultShift.vegDishes.map(cleanDishName).join(', '));
+      setInlineMeatDessert(cleanDishName(defaultShift.meatDessert));
+      setInlineVegDessert(cleanDishName(defaultShift.vegDessert));
+      onUpdateMenu(defaultShift);
+      setActiveInlineCellKey(null);
+      showToast(`✓ Đã khôi phục thực đơn gốc của ${day} (${shift})!`);
+    }
   };
 
   // Filtered menus for CARDS view
@@ -111,16 +143,25 @@ export const WeeklyMenuSheetView: React.FC<WeeklyMenuSheetViewProps> = ({
     <div className="bg-white rounded-2xl border border-neutral-200 shadow-xs p-5 sm:p-7 space-y-6">
       {/* Toast Notification */}
       {toastMessage && (
-        <div className="p-3 rounded-xl bg-teal-50 border border-teal-200 text-teal-900 text-xs font-medium flex items-center gap-2 animate-fade-in shadow-2xs">
-          <CheckCircle2 className="w-4 h-4 text-teal-600 shrink-0" />
-          <span>{toastMessage}</span>
+        <div className="p-3.5 rounded-xl bg-teal-50 border border-teal-200 text-teal-900 text-xs font-semibold flex items-center justify-between animate-fade-in shadow-2xs">
+          <div className="flex items-center gap-2">
+            <CheckCircle2 className="w-4 h-4 text-teal-600 shrink-0" />
+            <span>{toastMessage}</span>
+          </div>
+          <button
+            type="button"
+            onClick={() => setToastMessage(null)}
+            className="text-teal-700 hover:text-teal-950 p-1 cursor-pointer"
+          >
+            <X className="w-3.5 h-3.5" />
+          </button>
         </div>
       )}
 
-      {/* Header Banner matching Image 4 with dynamic vendor branding */}
+      {/* Header Banner */}
       <div className="text-center space-y-1.5 pb-5 border-b border-neutral-200">
-        <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-red-50 border border-red-200 text-red-700 font-bold text-xs uppercase tracking-wide">
-          <Building2 className="w-3.5 h-3.5" />
+        <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-teal-50 border border-teal-200 text-teal-800 font-bold text-xs uppercase tracking-wide">
+          <Building2 className="w-3.5 h-3.5 text-teal-700" />
           <span>
             {currentVendorObj.id === 'tam-phuong'
               ? 'CÔNG TY TNHH SUẤT ĂN TÁM PHƯƠNG'
@@ -143,8 +184,8 @@ export const WeeklyMenuSheetView: React.FC<WeeklyMenuSheetViewProps> = ({
             <strong className="text-neutral-900">Tuần phục vụ:</strong> từ ngày 05/10/2026 đến 11/10/2026
           </div>
           <div className="hidden sm:inline text-neutral-300">|</div>
-          <div className="text-red-600 font-semibold font-mono text-[11px] bg-red-50/80 px-2 py-0.5 rounded border border-red-100">
-            SINV =&gt; nghiêm cấm thay đổi form
+          <div className="text-teal-700 font-semibold font-mono text-[11px] bg-teal-50 px-2 py-0.5 rounded border border-teal-100">
+            Chỉnh sửa trực tiếp tại ô · Đồng bộ tức thì
           </div>
         </div>
       </div>
@@ -156,10 +197,10 @@ export const WeeklyMenuSheetView: React.FC<WeeklyMenuSheetViewProps> = ({
           <div className="flex items-center justify-between mb-2">
             <span className="font-bold text-neutral-900 flex items-center gap-1.5 text-xs sm:text-sm">
               <Building2 className="w-4 h-4 text-teal-700" />
-              Chọn nhà cung cấp để xem &amp; chuyển thực đơn:
+              Chọn nhà cung cấp để xem &amp; sửa thực đơn:
             </span>
             <span className="text-[11px] text-neutral-500 font-medium">
-              Đang xem thực đơn của: <strong className="text-teal-800">{currentVendorObj.name}</strong>
+              Đang xem: <strong className="text-teal-800 font-bold">{currentVendorObj.name}</strong>
             </span>
           </div>
 
@@ -172,6 +213,7 @@ export const WeeklyMenuSheetView: React.FC<WeeklyMenuSheetViewProps> = ({
                   type="button"
                   onClick={() => {
                     setSelectedVendorFilter(v.id);
+                    setActiveInlineCellKey(null);
                     showToast(`Đã chuyển thực đơn sang ${v.name}`);
                   }}
                   className={`p-2.5 rounded-xl text-left transition-all border flex flex-col justify-between cursor-pointer ${
@@ -204,7 +246,7 @@ export const WeeklyMenuSheetView: React.FC<WeeklyMenuSheetViewProps> = ({
           </div>
         </div>
 
-        {/* Step 2: Filters, View Toggle, Search */}
+        {/* Step 2: Filters, View Toggle, Search, Quick Edit Switch */}
         <div className="grid grid-cols-1 sm:grid-cols-12 gap-3 pt-3 border-t border-neutral-200 items-center">
           {/* Day Filter */}
           <div className="sm:col-span-3">
@@ -235,72 +277,74 @@ export const WeeklyMenuSheetView: React.FC<WeeklyMenuSheetViewProps> = ({
           </div>
 
           {/* Search Dish */}
-          <div className="sm:col-span-4 relative">
+          <div className="sm:col-span-3 relative">
             <Search className="w-3.5 h-3.5 text-neutral-400 absolute left-3 top-1/2 -translate-y-1/2" />
             <input
               type="text"
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
-              placeholder="Tìm món: sữa đậu nành, cá nục, sườn..."
+              placeholder="Tìm món: sữa đậu nành, cá nục..."
               className="w-full pl-8 pr-3 py-2 rounded-xl border border-neutral-300 bg-white text-xs focus:ring-1 focus:ring-teal-500 focus:outline-none"
             />
           </div>
 
-          {/* View Mode Toggle */}
-          <div className="sm:col-span-2 flex items-center justify-end gap-1.5">
+          {/* Quick Edit Mode Toggle */}
+          <div className="sm:col-span-3 flex items-center justify-end gap-1.5">
             <button
-              onClick={() => setViewMode('matrix')}
-              className={`px-2.5 py-1.5 rounded-lg border text-xs font-semibold flex items-center gap-1 transition-all ${
-                viewMode === 'matrix'
-                  ? 'bg-teal-700 text-white border-teal-700 shadow-2xs'
-                  : 'bg-white text-neutral-600 border-neutral-200 hover:bg-neutral-100'
+              type="button"
+              onClick={() => {
+                setIsQuickEditModeActive(!isQuickEditModeActive);
+                if (isQuickEditModeActive) {
+                  setActiveInlineCellKey(null);
+                }
+              }}
+              className={`px-3 py-1.5 rounded-xl font-bold text-xs flex items-center gap-1.5 transition-all cursor-pointer shadow-xs ${
+                isQuickEditModeActive
+                  ? 'bg-amber-500 text-neutral-950 ring-2 ring-amber-400/50'
+                  : 'bg-white border border-neutral-300 text-neutral-700 hover:bg-neutral-100'
               }`}
-              title="Chế độ bảng ma trận giống mẫu giấy"
+              title="Bật/Tắt chế độ nhấp vào ô bất kỳ để chỉnh sửa trực tiếp"
             >
-              <Table className="w-3.5 h-3.5" />
-              <span>Bảng mẫu</span>
+              <Edit3 className="w-3.5 h-3.5" />
+              <span>{isQuickEditModeActive ? 'Đang sửa nhanh ON' : 'Chỉnh sửa nhanh'}</span>
             </button>
-            <button
-              onClick={() => setViewMode('cards')}
-              className={`px-2.5 py-1.5 rounded-lg border text-xs font-semibold flex items-center gap-1 transition-all ${
-                viewMode === 'cards'
-                  ? 'bg-teal-700 text-white border-teal-700 shadow-2xs'
-                  : 'bg-white text-neutral-600 border-neutral-200 hover:bg-neutral-100'
-              }`}
-              title="Chế độ thẻ ngày chi tiết"
-            >
-              <LayoutGrid className="w-3.5 h-3.5" />
-              <span>Thẻ</span>
-            </button>
-            <button
-              onClick={() => setViewMode('compare')}
-              className={`px-2.5 py-1.5 rounded-lg border text-xs font-semibold flex items-center gap-1 transition-all ${
-                viewMode === 'compare'
-                  ? 'bg-teal-700 text-white border-teal-700 shadow-2xs'
-                  : 'bg-white text-neutral-600 border-neutral-200 hover:bg-neutral-100'
-              }`}
-              title="So sánh thực đơn các NCC trong ngày"
-            >
-              <Columns className="w-3.5 h-3.5" />
-              <span>So sánh NCC</span>
-            </button>
+
             <button
               type="button"
               onClick={() => setIsDeleteModalOpen(true)}
-              className="px-2.5 py-1.5 rounded-lg border border-red-200 text-red-700 bg-red-50/70 hover:bg-red-100 text-xs font-bold flex items-center gap-1 transition-all cursor-pointer shadow-2xs"
+              className="px-2.5 py-1.5 rounded-xl border border-red-200 text-red-700 bg-red-50 hover:bg-red-100 text-xs font-bold flex items-center gap-1 transition-all cursor-pointer"
               title="Mở bảng chọn để xóa ca ăn hoặc khôi phục thực đơn up nhầm"
             >
               <Trash2 className="w-3.5 h-3.5 text-red-600" />
-              <span>Xóa thực đơn</span>
+              <span>Xóa ca</span>
             </button>
           </div>
         </div>
       </div>
 
-      {/* MATRIX VIEW: Exact replica of official Vinhomes Catering Form */}
+      {/* QUICK EDIT HELPER BANNER */}
+      {isQuickEditModeActive && (
+        <div className="p-3 rounded-xl bg-amber-50 border border-amber-200 text-amber-950 text-xs flex items-center justify-between animate-fade-in shadow-2xs">
+          <div className="flex items-center gap-2">
+            <Edit3 className="w-4 h-4 text-amber-600 shrink-0" />
+            <span>
+              <strong>Chế độ Chỉnh sửa nhanh đang BẬT:</strong> Nhấp vào bất kỳ ô ca ăn nào trên bảng để sửa món ăn ngay tại chỗ. Bấm <strong>Lưu</strong> hoặc phím <strong>Enter</strong> để xác nhận.
+            </span>
+          </div>
+          <button
+            type="button"
+            onClick={() => setIsQuickEditModeActive(false)}
+            className="text-amber-800 hover:text-amber-950 font-bold px-2 py-0.5 rounded bg-amber-100 hover:bg-amber-200 transition-colors cursor-pointer"
+          >
+            Tắt sửa nhanh
+          </button>
+        </div>
+      )}
+
+      {/* MATRIX VIEW: Exact replica of official Vinhomes Catering Form WITH DIRECT INLINE EDITING */}
       {viewMode === 'matrix' && (
         <div className="overflow-x-auto border border-neutral-200 rounded-2xl shadow-xs">
-          <table className="w-full border-collapse text-left text-xs min-w-[750px]">
+          <table className="w-full border-collapse text-left text-xs min-w-[800px]">
             <thead>
               <tr className="bg-[#0f2d4a] text-white divide-x divide-neutral-700">
                 <th className="py-3 px-3.5 text-center w-28 uppercase text-[11px] font-bold">
@@ -309,39 +353,37 @@ export const WeeklyMenuSheetView: React.FC<WeeklyMenuSheetViewProps> = ({
                 <th className="py-3 px-3.5 w-1/3">
                   <div className="font-bold uppercase flex items-center gap-1.5">
                     <Coffee className="w-3.5 h-3.5 text-amber-300" />
-                    <span>SÁNG (Ăn nhẹ)</span>
+                    <span>SÁNG (Ăn nhẹ - 20k)</span>
                   </div>
-                  <div className="text-[10px] text-teal-300 font-normal">Món chính + Món chay + Tráng miệng</div>
+                  <div className="text-[10px] text-teal-300 font-normal">Nhấp ô để sửa món trực tiếp</div>
                 </th>
                 <th className="py-3 px-3.5 w-1/3">
                   <div className="font-bold uppercase flex items-center gap-1.5">
                     <Sun className="w-3.5 h-3.5 text-amber-400" />
-                    <span>TRƯA (Chính)</span>
+                    <span>TRƯA (Chính - 40k)</span>
                   </div>
-                  <div className="text-[10px] text-teal-300 font-normal">Món mặn + Món chay + Tráng miệng</div>
+                  <div className="text-[10px] text-teal-300 font-normal">Nhấp ô để sửa món trực tiếp</div>
                 </th>
                 <th className="py-3 px-3.5 w-1/3">
                   <div className="font-bold uppercase flex items-center gap-1.5">
                     <Moon className="w-3.5 h-3.5 text-indigo-300" />
-                    <span>TỐI (Tăng ca)</span>
+                    <span>TỐI (Tăng ca - 40k)</span>
                   </div>
-                  <div className="text-[10px] text-teal-300 font-normal">Món mặn + Món chay + Tráng miệng</div>
+                  <div className="text-[10px] text-teal-300 font-normal">Nhấp ô để sửa món trực tiếp</div>
                 </th>
               </tr>
             </thead>
             <tbody className="divide-y divide-neutral-200">
               {days.map((day) => {
                 const dayObj = DAYS_OF_WEEK.find((d) => d.day === day);
-                const morning = getMenuForVendorAndShift(menusList, selectedVendorFilter, day, 'Bữa sáng');
-                const lunch = getMenuForVendorAndShift(menusList, selectedVendorFilter, day, 'Bữa trưa');
-                const dinner = getMenuForVendorAndShift(menusList, selectedVendorFilter, day, 'Bữa tối');
+                const shiftsInRow: MealShift[] = ['Bữa sáng', 'Bữa trưa', 'Bữa tối'];
 
                 if (selectedDayFilter !== 'all' && selectedDayFilter !== day) {
                   return null;
                 }
 
                 return (
-                  <tr key={day} className="divide-x divide-neutral-200 hover:bg-neutral-50/60 transition-colors">
+                  <tr key={day} className="divide-x divide-neutral-200 hover:bg-neutral-50/40 transition-colors">
                     {/* Day Column */}
                     <td className="py-3.5 px-3 text-center bg-neutral-50/70 font-bold text-neutral-900 align-top">
                       <div className="text-xs font-extrabold">{day}</div>
@@ -353,176 +395,204 @@ export const WeeklyMenuSheetView: React.FC<WeeklyMenuSheetViewProps> = ({
                       </div>
                     </td>
 
-                    {/* Sáng */}
-                    <td className="py-3.5 px-3.5 align-top space-y-2">
-                      {morning ? (
-                        <>
-                          <div>
-                            <div className="font-bold text-neutral-900 leading-snug">
-                              {morning.meatDishes.map(cleanDishName).join(', ')}
-                            </div>
-                            <div className="text-[11px] text-amber-800 mt-1">
-                              <strong>Chay:</strong> {morning.vegDishes.map(cleanDishName).join(', ')}
-                            </div>
-                            <div className="text-[11px] text-emerald-700 font-semibold mt-1 flex items-center gap-1">
-                              <span className="w-1.5 h-1.5 rounded-full bg-emerald-500" />
-                              <span>Tráng miệng: {cleanDishName(morning.vegDessert || morning.meatDessert)}</span>
-                            </div>
-                          </div>
+                    {/* 3 Shifts Cells */}
+                    {shiftsInRow.map((shiftName) => {
+                      const cellKey = `${selectedVendorFilter}_${day}_${shiftName}`;
+                      const isEditingThisCell = activeInlineCellKey === cellKey;
+                      const menu = getMenuForVendorAndShift(menusList, selectedVendorFilter, day, shiftName);
 
-                          <div className="pt-2 flex items-center justify-between border-t border-neutral-100">
-                            <button
-                              type="button"
-                              onClick={() => {
-                                onSelectDayShift(day, 'Bữa sáng', selectedVendorFilter);
-                                showToast(`Đã áp dụng ${day} (Bữa sáng) của ${currentVendorObj.name} vào báo cáo!`);
-                              }}
-                              className="text-[11px] text-teal-700 hover:text-teal-900 hover:underline font-bold flex items-center gap-0.5 cursor-pointer"
-                            >
-                              <span>Chọn nạp báo cáo</span> &rarr;
-                            </button>
-                            <div className="flex items-center gap-1">
-                              <button
-                                type="button"
-                                onClick={() => openEdit(morning)}
-                                className="p-1 rounded text-neutral-400 hover:text-neutral-800 hover:bg-neutral-100 cursor-pointer"
-                                title="Chỉnh sửa món"
-                              >
-                                <Edit3 className="w-3.5 h-3.5" />
-                              </button>
-                              <button
-                                type="button"
-                                onClick={() => {
-                                  if (onDeleteSingleShift) {
-                                    onDeleteSingleShift(selectedVendorFilter, day, 'Bữa sáng');
-                                  }
-                                }}
-                                className="p-1 rounded text-neutral-400 hover:text-red-600 hover:bg-red-50 cursor-pointer transition-colors"
-                                title="Xóa món ca này (nếu up nhầm)"
-                              >
-                                <Trash2 className="w-3.5 h-3.5" />
-                              </button>
-                            </div>
-                          </div>
-                        </>
-                      ) : (
-                        <span className="text-neutral-400 italic">Chưa có dữ liệu</span>
-                      )}
-                    </td>
+                      return (
+                        <td
+                          key={shiftName}
+                          onClick={() => {
+                            if (!isEditingThisCell && isQuickEditModeActive) {
+                              startInlineEdit(selectedVendorFilter, day, shiftName);
+                            }
+                          }}
+                          className={`py-3 px-3 align-top space-y-2 transition-all ${
+                            isEditingThisCell
+                              ? 'bg-amber-50/70 ring-2 ring-amber-400 p-3 rounded-lg'
+                              : isQuickEditModeActive
+                              ? 'cursor-pointer hover:bg-amber-50/30'
+                              : ''
+                          }`}
+                        >
+                          {/* INLINE EDIT MODE FOR THIS CELL */}
+                          {isEditingThisCell ? (
+                            <div className="space-y-2.5 animate-fade-in text-xs">
+                              <div className="flex items-center justify-between border-b border-amber-200 pb-1.5">
+                                <span className="font-bold text-amber-950 text-[11px] flex items-center gap-1">
+                                  <Edit3 className="w-3 h-3 text-amber-600" />
+                                  <span>Sửa trực tiếp: {day} ({shiftName})</span>
+                                </span>
+                                <div className="flex items-center gap-1">
+                                  <button
+                                    type="button"
+                                    onClick={() => revertShiftToDefault(selectedVendorFilter, day, shiftName)}
+                                    className="p-1 text-neutral-500 hover:text-neutral-900 hover:bg-amber-100 rounded cursor-pointer"
+                                    title="Khôi phục món gốc của ca này"
+                                  >
+                                    <RotateCcw className="w-3.5 h-3.5" />
+                                  </button>
+                                  <button
+                                    type="button"
+                                    onClick={cancelInlineEdit}
+                                    className="p-1 text-neutral-500 hover:text-neutral-900 hover:bg-amber-100 rounded cursor-pointer"
+                                    title="Hủy sửa"
+                                  >
+                                    <X className="w-3.5 h-3.5" />
+                                  </button>
+                                </div>
+                              </div>
 
-                    {/* Trưa */}
-                    <td className="py-3.5 px-3.5 align-top space-y-2">
-                      {lunch ? (
-                        <>
-                          <div>
-                            <div className="font-bold text-neutral-900 leading-snug">
-                              {lunch.meatDishes.map(cleanDishName).join(', ')}
-                            </div>
-                            <div className="text-[11px] text-amber-800 mt-1">
-                              <strong>Chay:</strong> {lunch.vegDishes.map(cleanDishName).join(', ')}
-                            </div>
-                            <div className="text-[11px] text-emerald-700 font-semibold mt-1 flex items-center gap-1">
-                              <span className="w-1.5 h-1.5 rounded-full bg-emerald-500" />
-                              <span>Tráng miệng: {cleanDishName(lunch.meatDessert)}</span>
-                            </div>
-                          </div>
+                              {/* Món Mặn Input */}
+                              <div className="space-y-1">
+                                <label className="text-[10px] font-bold text-emerald-900 block">
+                                  Món mặn (cách nhau dấu phẩy):
+                                </label>
+                                <textarea
+                                  rows={2}
+                                  value={inlineMeat}
+                                  onChange={(e) => setInlineMeat(e.target.value)}
+                                  placeholder="Cơm trắng, Thịt kho, Canh..."
+                                  className="w-full p-1.5 rounded-lg border border-emerald-300 bg-white text-xs font-semibold focus:outline-none focus:ring-1 focus:ring-emerald-500"
+                                />
+                              </div>
 
-                          <div className="pt-2 flex items-center justify-between border-t border-neutral-100">
-                            <button
-                              type="button"
-                              onClick={() => {
-                                onSelectDayShift(day, 'Bữa trưa', selectedVendorFilter);
-                                showToast(`Đã áp dụng ${day} (Bữa trưa) của ${currentVendorObj.name} vào báo cáo!`);
-                              }}
-                              className="text-[11px] text-teal-700 hover:text-teal-900 hover:underline font-bold flex items-center gap-0.5 cursor-pointer"
-                            >
-                              <span>Chọn nạp báo cáo</span> &rarr;
-                            </button>
-                            <div className="flex items-center gap-1">
-                              <button
-                                type="button"
-                                onClick={() => openEdit(lunch)}
-                                className="p-1 rounded text-neutral-400 hover:text-neutral-800 hover:bg-neutral-100 cursor-pointer"
-                                title="Chỉnh sửa món"
-                              >
-                                <Edit3 className="w-3.5 h-3.5" />
-                              </button>
-                              <button
-                                type="button"
-                                onClick={() => {
-                                  if (onDeleteSingleShift) {
-                                    onDeleteSingleShift(selectedVendorFilter, day, 'Bữa trưa');
-                                  }
-                                }}
-                                className="p-1 rounded text-neutral-400 hover:text-red-600 hover:bg-red-50 cursor-pointer transition-colors"
-                                title="Xóa món ca này (nếu up nhầm)"
-                              >
-                                <Trash2 className="w-3.5 h-3.5" />
-                              </button>
-                            </div>
-                          </div>
-                        </>
-                      ) : (
-                        <span className="text-neutral-400 italic">Chưa có dữ liệu</span>
-                      )}
-                    </td>
+                              {/* Món Chay Input */}
+                              <div className="space-y-1">
+                                <label className="text-[10px] font-bold text-amber-900 block">
+                                  Món chay (cách nhau dấu phẩy):
+                                </label>
+                                <textarea
+                                  rows={2}
+                                  value={inlineVeg}
+                                  onChange={(e) => setInlineVeg(e.target.value)}
+                                  placeholder="Cơm trắng, Đậu hũ kho, Canh chay..."
+                                  className="w-full p-1.5 rounded-lg border border-amber-300 bg-white text-xs font-semibold focus:outline-none focus:ring-1 focus:ring-amber-500"
+                                />
+                              </div>
 
-                    {/* Tối */}
-                    <td className="py-3.5 px-3.5 align-top space-y-2">
-                      {dinner ? (
-                        <>
-                          <div>
-                            <div className="font-bold text-neutral-900 leading-snug">
-                              {dinner.meatDishes.map(cleanDishName).join(', ')}
-                            </div>
-                            <div className="text-[11px] text-amber-800 mt-1">
-                              <strong>Chay:</strong> {dinner.vegDishes.map(cleanDishName).join(', ')}
-                            </div>
-                            <div className="text-[11px] text-emerald-700 font-semibold mt-1 flex items-center gap-1">
-                              <span className="w-1.5 h-1.5 rounded-full bg-emerald-500" />
-                              <span>Tráng miệng: {cleanDishName(dinner.meatDessert)}</span>
-                            </div>
-                          </div>
+                              {/* Tráng miệng Input */}
+                              <div className="grid grid-cols-2 gap-1.5">
+                                <div>
+                                  <label className="text-[10px] font-bold text-neutral-700 block">
+                                    Tráng miệng mặn:
+                                  </label>
+                                  <input
+                                    type="text"
+                                    value={inlineMeatDessert}
+                                    onChange={(e) => setInlineMeatDessert(e.target.value)}
+                                    placeholder="Dưa hấu..."
+                                    className="w-full p-1 rounded-lg border border-neutral-300 bg-white text-xs font-medium focus:outline-none"
+                                  />
+                                </div>
+                                <div>
+                                  <label className="text-[10px] font-bold text-neutral-700 block">
+                                    Tráng miệng chay:
+                                  </label>
+                                  <input
+                                    type="text"
+                                    value={inlineVegDessert}
+                                    onChange={(e) => setInlineVegDessert(e.target.value)}
+                                    placeholder="Sữa đậu nành..."
+                                    className="w-full p-1 rounded-lg border border-neutral-300 bg-white text-xs font-medium focus:outline-none"
+                                  />
+                                </div>
+                              </div>
 
-                          <div className="pt-2 flex items-center justify-between border-t border-neutral-100">
-                            <button
-                              type="button"
-                              onClick={() => {
-                                onSelectDayShift(day, 'Bữa tối', selectedVendorFilter);
-                                showToast(`Đã áp dụng ${day} (Bữa tối) của ${currentVendorObj.name} vào báo cáo!`);
-                              }}
-                              className="text-[11px] text-teal-700 hover:text-teal-900 hover:underline font-bold flex items-center gap-0.5 cursor-pointer"
-                            >
-                              <span>Chọn nạp báo cáo</span> &rarr;
-                            </button>
-                            <div className="flex items-center gap-1">
-                              <button
-                                type="button"
-                                onClick={() => openEdit(dinner)}
-                                className="p-1 rounded text-neutral-400 hover:text-neutral-800 hover:bg-neutral-100 cursor-pointer"
-                                title="Chỉnh sửa món"
-                              >
-                                <Edit3 className="w-3.5 h-3.5" />
-                              </button>
-                              <button
-                                type="button"
-                                onClick={() => {
-                                  if (onDeleteSingleShift) {
-                                    onDeleteSingleShift(selectedVendorFilter, day, 'Bữa tối');
-                                  }
-                                }}
-                                className="p-1 rounded text-neutral-400 hover:text-red-600 hover:bg-red-50 cursor-pointer transition-colors"
-                                title="Xóa món ca này (nếu up nhầm)"
-                              >
-                                <Trash2 className="w-3.5 h-3.5" />
-                              </button>
+                              {/* Action buttons inside cell */}
+                              <div className="pt-1 flex items-center justify-between gap-1.5">
+                                <button
+                                  type="button"
+                                  onClick={cancelInlineEdit}
+                                  className="px-2.5 py-1 rounded-lg bg-white border border-neutral-300 hover:bg-neutral-100 text-neutral-700 font-semibold text-[11px] cursor-pointer"
+                                >
+                                  Hủy
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={() => saveInlineEdit(selectedVendorFilter, day, shiftName)}
+                                  className="px-3 py-1 rounded-lg bg-emerald-700 hover:bg-emerald-800 text-white font-bold text-[11px] flex items-center gap-1 cursor-pointer shadow-xs"
+                                >
+                                  <Save className="w-3 h-3" />
+                                  <span>Lưu thay đổi</span>
+                                </button>
+                              </div>
                             </div>
-                          </div>
-                        </>
-                      ) : (
-                        <span className="text-neutral-400 italic">Chưa có dữ liệu</span>
-                      )}
-                    </td>
+                          ) : (
+                            /* STANDARD VIEW FOR THIS CELL */
+                            <>
+                              <div>
+                                <div className="font-bold text-neutral-900 leading-snug">
+                                  {menu && menu.meatDishes.length > 0 ? (
+                                    menu.meatDishes.map(cleanDishName).join(', ')
+                                  ) : (
+                                    <span className="text-neutral-400 italic">Chưa có món mặn</span>
+                                  )}
+                                </div>
+                                <div className="text-[11px] text-amber-800 mt-1">
+                                  <strong>Chay:</strong>{' '}
+                                  {menu && menu.vegDishes.length > 0 ? (
+                                    menu.vegDishes.map(cleanDishName).join(', ')
+                                  ) : (
+                                    <span className="text-neutral-400 italic">Chưa có món chay</span>
+                                  )}
+                                </div>
+                                <div className="text-[11px] text-emerald-700 font-semibold mt-1 flex items-center gap-1">
+                                  <span className="w-1.5 h-1.5 rounded-full bg-emerald-500" />
+                                  <span>
+                                    Tráng miệng:{' '}
+                                    {cleanDishName(menu?.vegDessert || menu?.meatDessert) || 'Trái cây theo mùa'}
+                                  </span>
+                                </div>
+                              </div>
+
+                              <div className="pt-2 flex items-center justify-between border-t border-neutral-100">
+                                <button
+                                  type="button"
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    onSelectDayShift(day, shiftName, selectedVendorFilter);
+                                    showToast(`Đã áp dụng ${day} (${shiftName}) của ${currentVendorObj.name} vào báo cáo!`);
+                                  }}
+                                  className="text-[11px] text-teal-700 hover:text-teal-900 hover:underline font-bold flex items-center gap-0.5 cursor-pointer"
+                                >
+                                  <span>Nạp vào báo cáo</span> &rarr;
+                                </button>
+
+                                <div className="flex items-center gap-1">
+                                  <button
+                                    type="button"
+                                    onClick={(e) => {
+                                      e.stopPropagation();
+                                      startInlineEdit(selectedVendorFilter, day, shiftName);
+                                    }}
+                                    className="p-1 rounded text-neutral-500 hover:text-neutral-900 hover:bg-neutral-100 cursor-pointer"
+                                    title="Sửa nhanh trực tiếp tại ô này"
+                                  >
+                                    <Edit3 className="w-3.5 h-3.5 text-teal-700" />
+                                  </button>
+                                  <button
+                                    type="button"
+                                    onClick={(e) => {
+                                      e.stopPropagation();
+                                      if (onDeleteSingleShift) {
+                                        onDeleteSingleShift(selectedVendorFilter, day, shiftName);
+                                      }
+                                    }}
+                                    className="p-1 rounded text-neutral-400 hover:text-red-600 hover:bg-red-50 cursor-pointer transition-colors"
+                                    title="Xóa/làm mới ca này"
+                                  >
+                                    <Trash2 className="w-3.5 h-3.5" />
+                                  </button>
+                                </div>
+                              </div>
+                            </>
+                          )}
+                        </td>
+                      );
+                    })}
                   </tr>
                 );
               })}
@@ -580,10 +650,13 @@ export const WeeklyMenuSheetView: React.FC<WeeklyMenuSheetViewProps> = ({
                   <div className="flex items-center gap-2">
                     <button
                       type="button"
-                      onClick={() => openEdit(item)}
-                      className="text-neutral-500 hover:text-neutral-800 flex items-center gap-1 cursor-pointer"
+                      onClick={() => {
+                        setViewMode('matrix');
+                        startInlineEdit(item.vendorId || selectedVendorFilter, item.dayOfWeek, item.shift);
+                      }}
+                      className="text-teal-700 hover:text-teal-900 font-semibold flex items-center gap-1 cursor-pointer"
                     >
-                      <Edit3 className="w-3.5 h-3.5" /> Sửa món
+                      <Edit3 className="w-3.5 h-3.5" /> Sửa nhanh
                     </button>
                     <button
                       type="button"
@@ -593,20 +666,21 @@ export const WeeklyMenuSheetView: React.FC<WeeklyMenuSheetViewProps> = ({
                         }
                       }}
                       className="text-neutral-400 hover:text-red-600 flex items-center gap-1 cursor-pointer"
-                      title="Xóa/khôi phục món ca này nếu up nhầm"
+                      title="Xóa món ca này"
                     >
-                      <Trash2 className="w-3.5 h-3.5" /> Xóa món
+                      <Trash2 className="w-3.5 h-3.5" /> Xóa
                     </button>
                   </div>
+
                   <button
                     type="button"
                     onClick={() => {
                       onSelectDayShift(item.dayOfWeek, item.shift, item.vendorId);
-                      showToast(`Đã áp dụng vào báo cáo (${item.dayOfWeek} ${item.shift})!`);
+                      showToast(`Đã chọn ${item.dayOfWeek} (${item.shift}) vào báo cáo!`);
                     }}
-                    className="px-3 py-1.5 rounded-xl bg-[#0f2d4a] hover:bg-[#163e66] text-white font-bold flex items-center gap-1 cursor-pointer transition-colors"
+                    className="px-2.5 py-1 rounded-lg bg-teal-50 hover:bg-teal-100 text-teal-800 font-bold text-[11px] flex items-center gap-1 cursor-pointer"
                   >
-                    <span>Áp dụng vào báo cáo</span> &rarr;
+                    <span>Chọn ca này</span> &rarr;
                   </button>
                 </div>
               </div>
@@ -615,208 +689,16 @@ export const WeeklyMenuSheetView: React.FC<WeeklyMenuSheetViewProps> = ({
         </div>
       )}
 
-      {/* COMPARISON VIEW: Side-by-side NCC Comparison on Selected Day */}
-      {viewMode === 'compare' && (
-        <div className="space-y-4">
-          <div className="flex items-center justify-between bg-teal-50/80 p-3 rounded-xl border border-teal-200">
-            <span className="font-bold text-teal-950 text-xs">
-              Đang so sánh thực đơn các NCC cho ngày: <strong>{selectedDayFilter === 'all' ? 'Thứ 2' : selectedDayFilter}</strong>
-            </span>
-            <div className="flex items-center gap-1.5">
-              {days.map((d) => (
-                <button
-                  key={d}
-                  onClick={() => setSelectedDayFilter(d)}
-                  className={`px-2 py-1 rounded-md text-[11px] font-semibold transition-all ${
-                    (selectedDayFilter === 'all' ? 'Thứ 2' : selectedDayFilter) === d
-                      ? 'bg-teal-700 text-white'
-                      : 'bg-white border border-neutral-200 text-neutral-700'
-                  }`}
-                >
-                  {d}
-                </button>
-              ))}
-            </div>
-          </div>
-
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-            {vendors.map((v) => {
-              const activeDay = selectedDayFilter === 'all' ? 'Thứ 2' : selectedDayFilter;
-              const lunchMenu = getMenuForVendorAndShift(menusList, v.id, activeDay, 'Bữa trưa');
-              const dinnerMenu = getMenuForVendorAndShift(menusList, v.id, activeDay, 'Bữa tối');
-              const morningMenu = getMenuForVendorAndShift(menusList, v.id, activeDay, 'Bữa sáng');
-
-              return (
-                <div
-                  key={v.id}
-                  className="rounded-2xl border border-neutral-200 bg-white p-4 shadow-2xs space-y-3 text-xs"
-                >
-                  <div className="flex items-center justify-between border-b border-neutral-100 pb-2">
-                    <div className="flex items-center gap-2">
-                      <span className="w-7 h-7 rounded-lg bg-teal-100 text-teal-800 font-bold font-mono flex items-center justify-center text-xs">
-                        {v.code}
-                      </span>
-                      <div>
-                        <div className="font-bold text-neutral-900">{v.name}</div>
-                        <div className="text-[10px] text-neutral-400">{v.note}</div>
-                      </div>
-                    </div>
-                  </div>
-
-                  <div className="space-y-2">
-                    <div className="p-2 rounded-xl bg-neutral-50 border border-neutral-100">
-                      <div className="font-bold text-neutral-800 mb-0.5">Sáng:</div>
-                      <div className="text-neutral-700 text-[11px]">{morningMenu.meatDishes.join(', ')}</div>
-                      <div className="text-emerald-700 text-[10px] font-semibold mt-0.5">
-                        Tráng miệng: {morningMenu.vegDessert || morningMenu.meatDessert}
-                      </div>
-                    </div>
-
-                    <div className="p-2 rounded-xl bg-neutral-50 border border-neutral-100">
-                      <div className="font-bold text-neutral-800 mb-0.5">Trưa:</div>
-                      <div className="text-neutral-700 text-[11px]">{lunchMenu.meatDishes.join(', ')}</div>
-                      <div className="text-neutral-500 text-[10px] mt-0.5">
-                        Chay: {lunchMenu.vegDishes.join(', ')}
-                      </div>
-                      <div className="text-emerald-700 text-[10px] font-semibold mt-0.5">
-                        Tráng miệng: {lunchMenu.meatDessert}
-                      </div>
-                    </div>
-
-                    <div className="p-2 rounded-xl bg-neutral-50 border border-neutral-100">
-                      <div className="font-bold text-neutral-800 mb-0.5">Tối:</div>
-                      <div className="text-neutral-700 text-[11px]">{dinnerMenu.meatDishes.join(', ')}</div>
-                      <div className="text-emerald-700 text-[10px] font-semibold mt-0.5">
-                        Tráng miệng: {dinnerMenu.meatDessert}
-                      </div>
-                    </div>
-                  </div>
-
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setSelectedVendorFilter(v.id);
-                      setViewMode('matrix');
-                      showToast(`Đã chọn xem thực đơn đầy đủ tuần của ${v.name}`);
-                    }}
-                    className="w-full py-1.5 rounded-xl border border-teal-300 text-teal-800 bg-teal-50 hover:bg-teal-100 font-bold text-center text-xs transition-colors cursor-pointer"
-                  >
-                    Xem toàn bộ tuần của {v.name} &rarr;
-                  </button>
-                </div>
-              );
-            })}
-          </div>
-        </div>
-      )}
-
-      {/* Edit Modal Dialog */}
-      {editingItem && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-neutral-950/70 backdrop-blur-xs">
-          <div className="bg-white rounded-2xl max-w-lg w-full p-6 shadow-2xl border border-neutral-200 space-y-4 text-xs animate-scale-in">
-            <div className="flex items-center justify-between pb-2 border-b border-neutral-200">
-              <div>
-                <h3 className="text-sm font-bold text-neutral-900">
-                  Chỉnh Sửa Thực Đơn {editingItem.dayOfWeek} ({editingItem.shift})
-                </h3>
-                <span className="text-[11px] text-teal-700 font-medium">
-                  Nhà cung cấp: {currentVendorObj.name} · Ngày {editingItem.dateStr}
-                </span>
-              </div>
-              <button
-                onClick={() => setEditingItem(null)}
-                className="w-6 h-6 rounded-full bg-neutral-100 hover:bg-neutral-200 text-neutral-600 flex items-center justify-center font-bold cursor-pointer"
-              >
-                ✕
-              </button>
-            </div>
-
-            <div className="space-y-3">
-              <div className="space-y-1">
-                <label className="font-bold text-neutral-800">Các món mặn (ngăn cách dấu phẩy):</label>
-                <textarea
-                  rows={2}
-                  value={editMeat}
-                  onChange={(e) => setEditMeat(e.target.value)}
-                  className="w-full p-2.5 rounded-xl border border-neutral-300 focus:outline-none focus:ring-1 focus:ring-teal-500 text-xs"
-                />
-              </div>
-
-              <div className="space-y-1">
-                <label className="font-bold text-neutral-800">Món tráng miệng mặn:</label>
-                <input
-                  type="text"
-                  value={editMeatDessert}
-                  onChange={(e) => setEditMeatDessert(e.target.value)}
-                  className="w-full p-2 rounded-xl border border-neutral-300 focus:outline-none focus:ring-1 focus:ring-teal-500 text-xs"
-                />
-              </div>
-
-              <div className="space-y-1 pt-1 border-t border-neutral-100">
-                <label className="font-bold text-neutral-800">Các món chay (ngăn cách dấu phẩy):</label>
-                <textarea
-                  rows={2}
-                  value={editVeg}
-                  onChange={(e) => setEditVeg(e.target.value)}
-                  className="w-full p-2.5 rounded-xl border border-neutral-300 focus:outline-none focus:ring-1 focus:ring-teal-500 text-xs"
-                />
-              </div>
-
-              <div className="space-y-1">
-                <label className="font-bold text-neutral-800">
-                  Món tráng miệng chay (VD: Sữa đậu nành, Ổi, Chuối, Sữa chua...):
-                </label>
-                <input
-                  type="text"
-                  value={editVegDessert}
-                  onChange={(e) => setEditVegDessert(e.target.value)}
-                  className="w-full p-2 rounded-xl border border-neutral-300 focus:outline-none focus:ring-1 focus:ring-teal-500 text-xs"
-                />
-              </div>
-            </div>
-
-            <div className="flex justify-end gap-2 pt-2 border-t border-neutral-200">
-              <button
-                type="button"
-                onClick={() => setEditingItem(null)}
-                className="px-3 py-1.5 rounded-xl border border-neutral-300 text-neutral-700 cursor-pointer"
-              >
-                Hủy
-              </button>
-              <button
-                type="button"
-                onClick={handleSaveModal}
-                className="px-4 py-1.5 rounded-xl bg-teal-600 hover:bg-teal-700 text-white font-bold cursor-pointer transition-colors"
-              >
-                Lưu Thay Đổi
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* Delete Menu Modal */}
+      {/* Global Delete / Revert Modal */}
       <DeleteMenuModal
         isOpen={isDeleteModalOpen}
         onClose={() => setIsDeleteModalOpen(false)}
         vendors={vendors}
         menusList={menusList}
         initialVendorId={selectedVendorFilter}
-        onDeleteSelectedShifts={(shifts, action) => {
-          if (onDeleteSelectedShifts) {
-            onDeleteSelectedShifts(shifts, action);
-          }
-        }}
-        onResetVendorMenus={(vId) => {
-          if (onResetVendorMenus) {
-            onResetVendorMenus(vId);
-          }
-        }}
-        onClearVendorMenus={(vId) => {
-          if (onClearVendorMenus) {
-            onClearVendorMenus(vId);
-          }
-        }}
+        onDeleteSelectedShifts={onDeleteSelectedShifts || (() => {})}
+        onResetVendorMenus={onResetVendorMenus || (() => {})}
+        onClearVendorMenus={onClearVendorMenus || (() => {})}
       />
     </div>
   );
