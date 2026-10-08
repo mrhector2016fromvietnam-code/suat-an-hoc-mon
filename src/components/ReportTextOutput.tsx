@@ -27,6 +27,11 @@ const COMMON_DESSERTS = [
   'Thạch rau câu', 'Quýt', 'Thanh long', 'Cam sành', 'Nước sâm'
 ];
 
+const stripQuantitySuffix = (name: string): string => {
+  if (!name) return '';
+  return name.replace(/\s*\([^)]*?(?:\d+|g|ml|gr|gram|kg|suất|hũ|trái|miếng|quả|con|chén|ly|hộp|gói)[^)]*?\)\s*$/gi, '').trim() || name;
+};
+
 export const ReportTextOutput: React.FC<ReportTextOutputProps> = ({
   shift,
   dateStr,
@@ -142,10 +147,10 @@ export const ReportTextOutput: React.FC<ReportTextOutputProps> = ({
     const td11_3Str = vendor.td11_3 > 0 ? `${vendor.td11_3} suất` : 'chưa nhập suất';
 
     const vendorMenu = getMenuForVendorAndShift(menusList, vendor.id, dayOfWeek, shift as MealShift);
-    const meatDishesStr = vendorMenu.meatDishes.map(cleanDishName).filter(Boolean).join(', ');
-    const vegDishesStr = vendorMenu.vegDishes.map(cleanDishName).filter(Boolean).join(', ');
-    const meatDessertClean = cleanDishName(vendorMenu.meatDessert);
-    const vegDessertClean = cleanDishName(vendorMenu.vegDessert);
+    const meatDishesStr = vendorMenu.meatDishes.map((d) => stripQuantitySuffix(cleanDishName(d))).filter(Boolean).join(', ');
+    const vegDishesStr = vendorMenu.vegDishes.map((d) => stripQuantitySuffix(cleanDishName(d))).filter(Boolean).join(', ');
+    const meatDessertClean = stripQuantitySuffix(cleanDishName(vendorMenu.meatDessert));
+    const vegDessertClean = stripQuantitySuffix(cleanDishName(vendorMenu.vegDessert));
 
     // Standard Vietnamese Real-World Format strictly matching Prompt
     if (shiftInfo.isMorning) {

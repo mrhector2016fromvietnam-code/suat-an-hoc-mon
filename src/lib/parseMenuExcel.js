@@ -111,8 +111,10 @@ function sheetToGrid(ws) {
 function findHeader(grid) {
   for (let r = 0; r < Math.min(grid.length, 30); r++) {
     const row = grid[r].map(stripVi);
-    const at = (names) => row.findIndex((x) => names.includes(x));
-    const sang = at(['sang']), trua = at(['trua']), toi = at(['toi', 'chieu', 'dem', 'toi tang ca']);
+    const hasWord = (cell, words) => words.some(w => cell.includes(w));
+    const sang = row.findIndex((x) => hasWord(x, ['sang']));
+    const trua = row.findIndex((x) => hasWord(x, ['trua']));
+    const toi = row.findIndex((x) => hasWord(x, ['toi', 'chieu', 'dem', 'toi tang ca']));
     if (sang >= 0 && trua >= 0 && toi >= 0) {
       const starts = [sang, trua, toi].sort((a, b) => a - b);
       const groupCols = (start) => {
@@ -120,12 +122,12 @@ function findHeader(grid) {
         const sub = (grid[r + 1] || []).map(stripVi);
         let nameCol = start, weightCol = start + 1;
         for (let c = start; c < next; c++) {
-          if (sub[c]?.startsWith('mon')) nameCol = c;
-          if (sub[c]?.startsWith('trong luong')) weightCol = c;
+          if (sub[c]?.includes('mon') || sub[c]?.includes('ten')) nameCol = c;
+          if (sub[c]?.includes('trong luong') || sub[c]?.includes('dinh luong') || sub[c]?.includes('khoi luong') || sub[c]?.includes('so luong')) weightCol = c;
         }
         return { nameCol, weightCol };
       };
-      let dayCol = row.findIndex((x) => x === 'thu' || x === 'thu/ngay' || x === 'ngay');
+      let dayCol = row.findIndex((x) => x.includes('thu') || x.includes('ngay'));
       if (dayCol < 0) dayCol = starts[0] - 1;
       return { r, dayCol, sang: groupCols(sang), trua: groupCols(trua), toi: groupCols(toi) };
     }
@@ -210,10 +212,16 @@ const addDays = (d, n) => {
   return x.toISOString().slice(0, 10);
 };
 const isMonday = (d) => new Date(`${d}T00:00:00Z`).getUTCDay() === 1;
-const DAY_RE = /^(?:thu\s*([2-7])|(?:thu\s*)?chu\s*nhat|(?:thu\s*)?cn)(?![a-z0-9])/;
 const dayIndex = (label) => {
-  const m = stripVi(label).replace(/^[^a-z0-9]+/, '').match(DAY_RE);
-  return m ? (m[1] ? Number(m[1]) - 2 : 6) : -1;
+  const s = stripVi(label);
+  if (s.includes('2') || s.includes('hai')) return 0;
+  if (s.includes('3') || s.includes('ba')) return 1;
+  if (s.includes('4') || s.includes('tu')) return 2;
+  if (s.includes('5') || s.includes('nam')) return 3;
+  if (s.includes('6') || s.includes('sau')) return 4;
+  if (s.includes('7') || s.includes('bay')) return 5;
+  if (s.includes('chu') || s.includes('nhat') || s.includes('cn')) return 6;
+  return -1;
 };
 
 /* ---------- 7. HÀM CHÍNH ---------- */
