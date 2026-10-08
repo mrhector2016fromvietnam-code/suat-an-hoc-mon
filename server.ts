@@ -201,51 +201,84 @@ app.post('/api/gemini/extract-menu', async (req, res) => {
 
 LƯU Ý QUAN TRỌNG VỀ NHÀ CUNG CẤP (NCC):
 ${targetVendorId !== 'auto' && targetVendorId !== 'all' 
-  ? `NGƯỜI DÙNG ĐÃ CHỈ ĐỊNH ĐÍCH DANH THỰC ĐƠN NÀY LÀ CỦA NHÀ CUNG CẤP: "${identifiedVendor.name}" (ID: "${identifiedVendor.id}"). HÃY GÁN VENDORID "${identifiedVendor.id}" CHO TOÀN BỘ CÁC CA ĂN ĐƯỢC TRÍCH XUẤT.` 
-  : `HÃY PHÂN TÍCH TÊN CÔNG TY, TIÊU ĐỀ, MÃ NCC HOẶC CÁC CỘT TRONG ẢNH/VĂN BẢN ĐỂ GÁN CHÍNH XÁC VENDORID CHO TỪNG CA ĂN. NẾU ẢNH CHỨA NHIỀU NCC, HÃY TRÍCH XUẤT ĐẦY ĐỦ CHO TỪNG NCC TƯƠNG ỨNG.`
+  ? `NGƯỜI DÙNG ĐÃ CHỈ ĐỊNH ĐÍCH DANH THỰC ĐƠN NÀY LÀ CỦA NHÀ CUNG CẤP: "${identifiedVendor.name}" (ID: "${identifiedVendor.id}").` 
+  : `HÃY PHÂN TÍCH TÊN CÔNG TY, TIÊU ĐỀ, MÃ NCC HOẶC CÁC CỘT TRONG ẢNH/VĂN BẢN ĐỂ XÁC ĐỊNH NHÀ CUNG CẤP.`
 }
 
-DANH SÁCH 7 NHÀ CUNG CẤP CHUẨN CẦN ÁNH XẠ:
-1. "TÁM PHƯƠNG" hoặc "TP" => vendorId: "tam-phuong", vendorName: "Tám Phương", code: "TP"
-2. "LIM DƯƠNG" hoặc "LD" => vendorId: "lim-duong", vendorName: "Lim Dương", code: "LD"
-3. "MINH LONG FOOD" hoặc "MINH LONG" hoặc "ML" => vendorId: "minh-long-food", vendorName: "Minh Long Food", code: "ML"
-4. "NGUYÊN SÀI GÒN" hoặc "NS" => vendorId: "nguyen-sai-gon", vendorName: "Nguyên Sài Gòn", code: "NS"
-5. "HƯƠNG NGỌC PHÁT" hoặc "HN" => vendorId: "huong-ngoc-phat", vendorName: "Hương Ngọc Phát", code: "HN"
-6. "THIÊN HỒNG PHÚC" hoặc "TH" => vendorId: "thien-hong-phuc", vendorName: "Thiên Hồng Phúc", code: "TH"
-7. "VINA STORY" hoặc "VS" => vendorId: "vina-story", vendorName: "Vina Story", code: "VS"
+DANH SÁCH 7 NHÀ CUNG CẤP CHUẨN:
+1. "TÁM PHƯƠNG" (TP) -> tam-phuong
+2. "LIM DƯƠNG" (LD) -> lim-duong
+3. "MINH LONG FOOD" (ML) -> minh-long-food
+4. "NGUYÊN SÀI GÒN" (NS) -> nguyen-sai-gon
+5. "HƯƠNG NGỌC PHÁT" (HN) -> huong-ngoc-phat
+6. "THIÊN HỒNG PHÚC" (TH) -> thien-hong-phuc
+7. "VINA STORY" (VS) -> vina-story
 
-QUY TẮC BÓC TÁCH MÓN ĂN:
-1. Trích xuất đúng món ăn theo từng Thứ (Thứ 2, Thứ 3, Thứ 4, Thứ 5, Thứ 6, Thứ 7, Chủ nhật) và từng Ca (Bữa sáng, Bữa trưa, Bữa tối).
-2. XÓA BỎ HOÀN TOÀN ĐỊNH LƯỢNG TRỌNG LƯỢNG, GAM, HỘP (ví dụ: "Phở áp chảo bò (Phở: 200g, Bò: 40g)" => "Phở áp chảo bò", "Táo xanh (90-100gr)" => "Táo xanh", "Sữa chua (1 hũ)" => "Sữa chua").
-3. Phân tách rõ ràng:
-   - meatDishes: Danh sách món mặn (dạng mảng các chuỗi, ví dụ: ["Cơm trắng", "Sườn ram mặn", "Canh bí đao"])
-   - meatDessert: Món tráng miệng mặn (ví dụ: "Chuối" hoặc "Dưa hấu" hoặc "Thạch rau câu")
-   - vegDishes: Danh sách món chay (dạng mảng các chuỗi, ví dụ: ["Cơm trắng", "Đậu hũ sốt cà", "Canh bí đao"])
-   - vegDessert: Món tráng miệng chay
-4. Không bỏ sót bất kỳ ngày nào trong tuần nếu có trên bảng.
-
-Trả về DUY NHẤT một chuỗi JSON hợp lệ không kèm markdown backticks, đúng cấu trúc:
+BẮT BUỘC TRẢ VỀ DUY NHẤT CHUỖI JSON HỢP LỆ THEO SCHEMA SAU (KHÔNG BỊA MÓN, MÔN NÀO KHÔNG RÕ ĐỂ KHÔNG ĐIỀN):
 {
-  "extractedVendors": [
-    { "vendorId": "lim-duong", "vendorName": "Lim Dương", "code": "LD" }
-  ],
-  "vendorName": "Tên NCC chính",
-  "vendorId": "lim-duong",
-  "projectName": "Ký Túc Xá Hóc Môn",
-  "weekRange": "05/10/2026 - 11/10/2026",
-  "menus": [
+  "supplier_detected": "${identifiedVendor.name}",
+  "week_start": "2026-10-05",
+  "days": [
     {
-      "vendorId": "lim-duong",
-      "dayOfWeek": "Thứ 2",
-      "dateStr": "05/10/2026",
-      "shift": "Bữa sáng",
-      "meatDishes": ["Bún bò Huế", "Rau thơm ăn kèm"],
-      "meatDessert": "Sữa chua",
-      "vegDishes": ["Bún bò chay", "Rau thơm ăn kèm"],
-      "vegDessert": "Sữa chua",
-      "isWeighedOk": true
+      "date": "2026-10-05",
+      "weekday": "Thứ 2",
+      "shifts": [
+        {
+          "shift": "sang",
+          "items": [
+            {
+              "category": "man",
+              "name": "Bún bò Huế",
+              "qty": 200,
+              "unit": "g",
+              "qty_options": null,
+              "confidence": 0.95
+            }
+          ]
+        },
+        {
+          "shift": "trua",
+          "items": [
+            {
+              "category": "man",
+              "name": "Cơm sườn ram",
+              "qty": 280,
+              "unit": "g",
+              "qty_options": [280, 300],
+              "confidence": 0.95
+            },
+            {
+              "category": "chay",
+              "name": "Đậu hũ sốt cà",
+              "qty": 100,
+              "unit": "g",
+              "confidence": 0.9
+            },
+            {
+              "category": "trang_mieng",
+              "name": "Dưa hấu",
+              "qty": 1,
+              "unit": "trai",
+              "confidence": 0.9
+            }
+          ]
+        },
+        {
+          "shift": "toi",
+          "items": [
+            {
+              "category": "man",
+              "name": "Thịt kho trứng",
+              "qty": 250,
+              "unit": "g",
+              "confidence": 0.95
+            }
+          ]
+        }
+      ]
     }
-  ]
+  ],
+  "warnings": []
 }`;
 
     let contents: any;
@@ -282,7 +315,7 @@ Trả về DUY NHẤT một chuỗi JSON hợp lệ không kèm markdown backtic
     }
 
     let response: any = null;
-    const modelsToTry = ['gemini-2.5-flash', 'gemini-3.8-flash', 'gemini-flash-latest'];
+    const modelsToTry = ['gemini-3.8-flash', 'gemini-flash-latest', 'gemini-3.1-flash-lite'];
     let lastError: any = null;
 
     for (const modelName of modelsToTry) {
@@ -293,10 +326,57 @@ Trả về DUY NHẤT một chuỗi JSON hợp lệ không kèm markdown backtic
           config: {
             responseMimeType: 'application/json',
             temperature: 0,
+            responseSchema: {
+              type: 'OBJECT',
+              properties: {
+                supplier_detected: { type: 'STRING' },
+                week_start: { type: 'STRING' },
+                days: {
+                  type: 'ARRAY',
+                  items: {
+                    type: 'OBJECT',
+                    properties: {
+                      date: { type: 'STRING' },
+                      weekday: { type: 'STRING' },
+                      shifts: {
+                        type: 'ARRAY',
+                        items: {
+                          type: 'OBJECT',
+                          properties: {
+                            shift: { type: 'STRING' },
+                            items: {
+                              type: 'ARRAY',
+                              items: {
+                                type: 'OBJECT',
+                                properties: {
+                                  category: { type: 'STRING' },
+                                  name: { type: 'STRING' },
+                                  qty: { type: 'NUMBER' },
+                                  unit: { type: 'STRING' },
+                                  confidence: { type: 'NUMBER' },
+                                },
+                                required: ['category', 'name'],
+                              },
+                            },
+                          },
+                          required: ['shift', 'items'],
+                        },
+                      },
+                    },
+                    required: ['weekday', 'shifts'],
+                  },
+                },
+                warnings: {
+                  type: 'ARRAY',
+                  items: { type: 'STRING' },
+                },
+              },
+              required: ['days'],
+            },
           },
         });
         const timeoutPromise = new Promise((_, reject) =>
-          setTimeout(() => reject(new Error(`Timeout model ${modelName}`)), 18000)
+          setTimeout(() => reject(new Error(`Timeout model ${modelName}`)), 22000)
         );
         response = await Promise.race([geminiPromise, timeoutPromise]);
         if (response?.text) break;
@@ -343,8 +423,69 @@ Trả về DUY NHẤT một chuỗi JSON hợp lệ không kèm markdown backtic
     }
 
     const textOutput = response?.text || '';
-    const cleanedText = textOutput.replace(/```json/g, '').replace(/```/g, '').trim();
-    const parsed = JSON.parse(cleanedText);
+    let cleanedText = textOutput.replace(/```json/g, '').replace(/```/g, '').trim();
+    let parsed: any;
+    try {
+      parsed = JSON.parse(cleanedText);
+    } catch (parseErr) {
+      const firstBrace = cleanedText.indexOf('{');
+      const lastBrace = cleanedText.lastIndexOf('}');
+      if (firstBrace !== -1 && lastBrace !== -1) {
+        parsed = JSON.parse(cleanedText.substring(firstBrace, lastBrace + 1));
+      } else {
+        throw parseErr;
+      }
+    }
+
+    // Convert parsed.days to parsed.menus if parsed.days format is returned by Gemini
+    if (!parsed.menus && Array.isArray(parsed.days)) {
+      const shiftTitleMap: Record<string, string> = {
+        sang: 'Bữa sáng',
+        trua: 'Bữa trưa',
+        toi: 'Bữa tối',
+      };
+      parsed.menus = [];
+      parsed.days.forEach((day: any) => {
+        if (Array.isArray(day.shifts)) {
+          day.shifts.forEach((sh: any) => {
+            const meatDishes: string[] = [];
+            const vegDishes: string[] = [];
+            let meatDessert = '';
+            let vegDessert = '';
+
+            if (Array.isArray(sh.items)) {
+              sh.items.forEach((item: any) => {
+                const dishStr = typeof item === 'string'
+                  ? item
+                  : (item.qty && item.qty > 0 ? `${item.name} (${item.qty}${item.unit || 'g'})` : item.name);
+                if (item.category === 'chay') {
+                  vegDishes.push(dishStr);
+                } else if (item.category === 'trang_mieng') {
+                  if (!meatDessert) meatDessert = dishStr;
+                  else vegDessert = dishStr;
+                } else {
+                  meatDishes.push(dishStr);
+                }
+              });
+            }
+
+            if (meatDishes.length > 0 || vegDishes.length > 0 || meatDessert) {
+              parsed.menus.push({
+                vendorId: fallbackVendorId,
+                dayOfWeek: day.weekday,
+                dateStr: day.date || '05/10/2026',
+                shift: shiftTitleMap[sh.shift] || sh.shift || 'Bữa sáng',
+                meatDishes,
+                vegDishes,
+                meatDessert,
+                vegDessert,
+                isWeighedOk: true,
+              });
+            }
+          });
+        }
+      });
+    }
 
     if (!parsed.menus || !Array.isArray(parsed.menus) || parsed.menus.length === 0) {
       throw new Error('Dữ liệu OCR không trích xuất được danh sách ca ăn');

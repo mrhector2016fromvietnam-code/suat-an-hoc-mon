@@ -14,6 +14,7 @@ import { WeeklyMenuSheetView } from './components/WeeklyMenuSheetView';
 import { DEFAULT_VENDORS, PRELOADED_MENUS, DAYS_OF_WEEK, getMenuForVendorAndShift, cleanDishName, cleanMenuObj } from './data/vinhomesMenuData';
 import { DeleteMenuModal } from './components/DeleteMenuModal';
 import { VendorPortionRow, MealShift, DayShiftMenu } from './types/report';
+import { verifyReportMatchesMenu } from './utils/reportVerifier';
 import { FileText, Sparkles, Check, RefreshCw, AlertCircle, Building2, Utensils, CheckCircle2, Trash2 } from 'lucide-react';
 
 // Cache key v7 strictly separates all 7 vendors with distinct 21 shifts per vendor
@@ -61,8 +62,10 @@ export default function App() {
   useEffect(() => {
     try {
       localStorage.setItem(STORAGE_KEY_MENUS, JSON.stringify(menusList));
+      // Step F requirement: Auto verify report matches menu
+      verifyReportMatchesMenu(menusList, selectedVendorIds);
     } catch (e) {}
-  }, [menusList]);
+  }, [menusList, selectedVendorIds]);
 
   useEffect(() => {
     try {
@@ -123,15 +126,18 @@ export default function App() {
     });
   };
 
-  // Handler when a menu is extracted via OCR from uploaded file
+  // Handler when a menu is extracted and confirmed by user
   const handleMenuExtracted = (data: {
     vendorName?: string;
     vendorId?: string;
     projectName?: string;
     weekRange?: string;
     menus: DayShiftMenu[];
+    syncMode?: 'overwrite' | 'merge';
   }) => {
     if (!data.menus || data.menus.length === 0) return;
+
+    console.log('[DEBUG handleMenuExtracted] Incoming OCR / Extracted Data:', data);
 
     // Detect all unique vendorIds present in incoming menus
     const incomingVendorIds = Array.from(
@@ -150,6 +156,8 @@ export default function App() {
       isWeighedOk: true
     }));
 
+    console.log('[DEBUG handleMenuExtracted] Formatted Incoming Menus:', formattedIncoming);
+
     setMenusList((prev) => {
       // Map incoming shifts by key
       const incomingKeyMap = new Map(
@@ -161,13 +169,25 @@ export default function App() {
         if (incomingKeyMap.has(key)) {
           const item = incomingKeyMap.get(key)!;
           incomingKeyMap.delete(key);
-          return item;
+          if (data.syncMode === 'merge') {
+            const hasExistingMeat = m.meatDishes && m.meatDishes.length > 0;
+            const hasExistingVeg = m.vegDishes && m.vegDishes.length > 0;
+            return {
+              ...m,
+              meatDishes: hasExistingMeat ? m.meatDishes : item.meatDishes,
+              vegDishes: hasExistingVeg ? m.vegDishes : item.vegDishes,
+              meatDessert: m.meatDessert || item.meatDessert,
+              vegDessert: m.vegDessert || item.vegDessert,
+            };
+          }
+          return item; // Overwrite
         }
         return m;
       });
 
       const extras = Array.from(incomingKeyMap.values());
       const nextList = [...updated, ...extras];
+      console.log('[DEBUG handleMenuExtracted] Resulting updated menusList state:', nextList);
       try {
         localStorage.setItem(STORAGE_KEY_MENUS, JSON.stringify(nextList));
       } catch (e) {}

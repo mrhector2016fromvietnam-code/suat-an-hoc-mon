@@ -521,32 +521,114 @@ export const WeeklyMenuSheetView: React.FC<WeeklyMenuSheetViewProps> = ({
                               </div>
                             </div>
                           ) : (
-                            /* STANDARD VIEW FOR THIS CELL */
+                            /* STANDARD VIEW FOR THIS CELL (Step 3.4 requirement) */
                             <>
+                              <div className="space-y-1.5">
+                              {/* Món Mặn */}
                               <div>
-                                <div className="font-bold text-neutral-900 leading-snug">
-                                  {menu && menu.meatDishes.length > 0 ? (
-                                    menu.meatDishes.map(cleanDishName).join(', ')
-                                  ) : (
-                                    <span className="text-neutral-400 italic">Chưa có món mặn</span>
-                                  )}
+                                <div className="text-[10px] font-extrabold text-neutral-500 uppercase tracking-wider mb-0.5">
+                                  Món mặn:
                                 </div>
-                                <div className="text-[11px] text-amber-800 mt-1">
-                                  <strong>Chay:</strong>{' '}
-                                  {menu && menu.vegDishes.length > 0 ? (
-                                    menu.vegDishes.map(cleanDishName).join(', ')
-                                  ) : (
-                                    <span className="text-neutral-400 italic">Chưa có món chay</span>
-                                  )}
-                                </div>
-                                <div className="text-[11px] text-emerald-700 font-semibold mt-1 flex items-center gap-1">
-                                  <span className="w-1.5 h-1.5 rounded-full bg-emerald-500" />
-                                  <span>
-                                    Tráng miệng:{' '}
-                                    {cleanDishName(menu?.vegDessert || menu?.meatDessert) || 'Trái cây theo mùa'}
-                                  </span>
-                                </div>
+                                {menu && menu.meatDishes && menu.meatDishes.length > 0 ? (
+                                  <div className="space-y-1">
+                                    {menu.meatDishes
+                                      .flatMap((dishStr) => dishStr.split(/,(?![^()]*\))/).map((s) => s.trim()).filter(Boolean))
+                                      .map((dishStr, dIdx) => {
+                                        // Check if has dash or paren quantity
+                                        let name = dishStr;
+                                        let portions = '';
+
+                                        if (dishStr.includes(' — ')) {
+                                          const parts = dishStr.split(' — ');
+                                          name = parts[0];
+                                          portions = parts[1] || '';
+                                        } else {
+                                          const parenMatch = dishStr.match(/^(.*?)\s*\((.*?)\)$/);
+                                          if (parenMatch) {
+                                            name = parenMatch[1];
+                                            portions = parenMatch[2];
+                                          }
+                                        }
+
+                                        return (
+                                          <div key={dIdx} className="flex items-start gap-1.5 text-xs leading-snug">
+                                            <span className="text-teal-700 font-bold shrink-0 mt-0.5">•</span>
+                                            <div className="flex-1 flex flex-wrap items-baseline gap-1">
+                                              <span className="font-bold text-neutral-900">{name}</span>
+                                              {portions && (
+                                                <span className="text-[10px] font-mono font-medium text-teal-800 bg-teal-50 px-1 py-0.2 rounded border border-teal-200">
+                                                  {portions}
+                                                </span>
+                                              )}
+                                            </div>
+                                          </div>
+                                        );
+                                      })}
+                                  </div>
+                                ) : (
+                                  <span className="text-neutral-400 italic text-[11px]">Chưa có món mặn</span>
+                                )}
                               </div>
+
+                              {/* Món Chay */}
+                              <div className="pt-1 border-t border-neutral-100">
+                                <div className="text-[10px] font-extrabold text-amber-800 uppercase tracking-wider mb-0.5">
+                                  Món chay:
+                                </div>
+                                {menu && menu.vegDishes && menu.vegDishes.length > 0 ? (
+                                  <div className="space-y-1">
+                                    {menu.vegDishes
+                                      .flatMap((dishStr) => dishStr.split(/,(?![^()]*\))/).map((s) => s.trim()).filter(Boolean))
+                                      .map((dishStr, dIdx) => {
+                                        let name = dishStr;
+                                        let portions = '';
+
+                                        if (dishStr.includes(' — ')) {
+                                          const parts = dishStr.split(' — ');
+                                          name = parts[0];
+                                          portions = parts[1] || '';
+                                        } else {
+                                          const parenMatch = dishStr.match(/^(.*?)\s*\((.*?)\)$/);
+                                          if (parenMatch) {
+                                            name = parenMatch[1];
+                                            portions = parenMatch[2];
+                                          }
+                                        }
+
+                                        return (
+                                          <div key={dIdx} className="flex items-start gap-1.5 text-xs leading-snug">
+                                            <span className="text-amber-700 font-bold shrink-0 mt-0.5">•</span>
+                                            <div className="flex-1 flex flex-wrap items-baseline gap-1">
+                                              <span className="font-bold text-amber-950">{name}</span>
+                                              {portions && (
+                                                <span className="text-[10px] font-mono font-medium text-amber-900 bg-amber-50 px-1 py-0.2 rounded border border-amber-200">
+                                                  {portions}
+                                                </span>
+                                              )}
+                                            </div>
+                                          </div>
+                                        );
+                                      })}
+                                  </div>
+                                ) : (
+                                  <span className="text-neutral-400 italic text-[11px]">Chưa có món chay</span>
+                                )}
+                              </div>
+
+                              {/* Tráng miệng (NO placeholder "Trái cây theo mùa") */}
+                              <div className="pt-1 border-t border-neutral-100 text-[11px]">
+                                <span className="font-extrabold text-emerald-800 text-[10px] uppercase tracking-wider mr-1">
+                                  Tráng miệng:
+                                </span>
+                                {(menu?.meatDessert || menu?.vegDessert) ? (
+                                  <span className="font-semibold text-emerald-950">
+                                    {menu.meatDessert || menu.vegDessert}
+                                  </span>
+                                ) : (
+                                  <span className="text-neutral-400">—</span>
+                                )}
+                              </div>
+                            </div>
 
                               <div className="pt-2 flex items-center justify-between border-t border-neutral-100">
                                 <button

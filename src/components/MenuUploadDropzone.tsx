@@ -6,7 +6,42 @@ import {
 } from 'lucide-react';
 import { DayShiftMenu } from '../types/report';
 import { PRELOADED_MENUS, cleanDishName } from '../data/vinhomesMenuData';
-import { parseExcelMenuFile } from '../utils/excelMenuParser';
+import { parseExcelMenuFile, recordsToDayShiftMenus, formatWeekIsoToDisplay } from '../utils/excelMenuParser';
+import { compressAndResizeImage } from '../utils/imageCompressor';
+import { resolveSupplierMatch, SupplierMatchResult, VendorInfo } from '../utils/matchSupplier';
+import { normalizeMenuData, NormalizedMenuSchema } from '../utils/normalizeMenu';
+import { VendorConflictModal } from './VendorConflictModal';
+import { ExtractionPreviewModal, MenuRecord, MenuRecordItem } from './ExtractionPreviewModal';
+import { MultiFilePreviewModal, BatchFileItem } from './MultiFilePreviewModal';
+import { ExtractionLogPanel, ExtractionLogEntry } from './ExtractionLogPanel';
+import { 
+  parseMenuWorkbook, 
+  toGrid, 
+  formatPortions, 
+  matchSupplier, 
+  SUPPLIERS as PARSER_SUPPLIERS,
+  itemsFromRows 
+} from '../lib/parseMenuExcel';
+
+const VENDOR_ID_TO_CODE: Record<string, string> = {
+  'tam-phuong': 'TP',
+  'lim-duong': 'LD',
+  'minh-long-food': 'ML',
+  'nguyen-sai-gon': 'NS',
+  'huong-ngoc-phat': 'HN',
+  'thien-hong-phuc': 'TH',
+  'vina-story': 'VS',
+};
+
+const VENDOR_CODE_TO_ID: Record<string, string> = {
+  TP: 'tam-phuong',
+  LD: 'lim-duong',
+  ML: 'minh-long-food',
+  NS: 'nguyen-sai-gon',
+  HN: 'huong-ngoc-phat',
+  TH: 'thien-hong-phuc',
+  VS: 'vina-story',
+};
 
 interface MenuUploadDropzoneProps {
   currentMenuName: string;
@@ -45,7 +80,7 @@ export const MenuUploadDropzone: React.FC<MenuUploadDropzoneProps> = ({
   const [isDragging, setIsDragging] = useState(false);
   const [isProcessing, setIsProcessing] = useState(false);
   const [progressMsg, setProgressMsg] = useState('');
-  const [uploadNotice, setUploadNotice] = useState<{ type: 'success' | 'error' | 'info'; text: string } | null>(null);
+  const [uploadNotice, setUploadNotice] = useState<{ type: 'success' | 'error' | 'info' | 'warning'; text: string } | null>(null);
   const [extractedResult, setExtractedResult] = useState<any | null>(null);
   const [previewVendorId, setPreviewVendorId] = useState<string>('tam-phuong');
   const [activeInputMode, setActiveInputMode] = useState<'upload' | 'paste' | 'preset'>('upload');
@@ -53,6 +88,50 @@ export const MenuUploadDropzone: React.FC<MenuUploadDropzoneProps> = ({
   const [selectedTargetVendor, setSelectedTargetVendor] = useState<string>('auto');
   const [showDiagnosticOverlay, setShowDiagnosticOverlay] = useState<boolean>(false);
   const [diagnosticPairs, setDiagnosticPairs] = useState<Record<string, string> | null>(null);
+
+  // New pipeline states
+  const [showPreviewModal, setShowPreviewModal] = useState<boolean>(false);
+  const [showMultiFileModal, setShowMultiFileModal] = useState<boolean>(false);
+  const [batchFileItems, setBatchFileItems] = useState<BatchFileItem[]>([]);
+  const [previewRecords, setPreviewRecords] = useState<MenuRecord[]>([]);
+  const [previewStats, setPreviewStats] = useState<{ records: number; dishes: number }>({ records: 0, dishes: 0 });
+  const [previewWarnings, setPreviewWarnings] = useState<string[]>([]);
+  const [pendingVendor, setPendingVendor] = useState<{ id: string; name: string }>({ id: 'tam-phuong', name: 'Tám Phương' });
+  const [showConflictModal, setShowConflictModal] = useState<boolean>(false);
+  const [conflictMatchInfo, setConflictMatchInfo] = useState<SupplierMatchResult | null>(null);
+  const [extractionLogs, setExtractionLogs] = useState<ExtractionLogEntry[]>([]);
+  const [pendingRawData, setPendingRawData] = useState<any | null>(null);
+
+  const logExtractionEvent = (
+    fileName: string,
+    vendorName: string,
+    vendorCode: string,
+    sourceType: 'Excel' | 'Image OCR' | 'Text Paste',
+    status: 'success' | 'warning' | 'error',
+    itemCount: number,
+    durationMs: number,
+    warnings: string[] = [],
+    uploadLog?: string,
+    parseLog?: string,
+    modalLog?: string
+  ) => {
+    const newEntry: ExtractionLogEntry = {
+      id: String(Date.now()),
+      timestamp: new Date().toLocaleTimeString('vi-VN'),
+      fileName,
+      vendorName,
+      vendorCode,
+      sourceType,
+      status,
+      itemCount,
+      durationMs,
+      warnings,
+      uploadLog,
+      parseLog,
+      modalLog,
+    };
+    setExtractionLogs((prev) => [newEntry, ...prev.slice(0, 19)]);
+  };
 
   // Helper to identify vendor from text
   const detectVendorFromText = (text: string): { id: string; name: string } => {
@@ -191,188 +270,380 @@ export const MenuUploadDropzone: React.FC<MenuUploadDropzoneProps> = ({
     });
   };
 
-  // Process file upload with Real Multi-Vendor OCR & Excel Parser
+  // Confirm sync from Preview Modal (Step E -> Step F)
+  const handleConfirmPreviewSync = (finalRecords: MenuRecord[], mode: 'overwrite' | 'merge') => {
+    const targetVendorId = pendingVendor.id;
+    const targetVendorName = pendingVendor.name;
+
+    // Convert MenuRecord[] to DayShiftMenu[] strictly according to recordsToDayShiftMenus
+    const incomingMenus = recordsToDayShiftMenus(finalRecords, targetVendorId);
+
+    const payload = {
+      vendorName: targetVendorName,
+      vendorId: targetVendorId,
+      projectName: 'Ký Túc Xá Hóc Môn',
+      weekRange: '05/10/2026 - 11/10/2026',
+      menus: incomingMenus,
+      syncMode: mode,
+    };
+
+    setExtractedResult(payload);
+    setPreviewVendorId(targetVendorId);
+
+    if (onMenuExtracted) {
+      onMenuExtracted(payload);
+    }
+
+    setShowPreviewModal(false);
+    setUploadNotice({
+      type: 'success',
+      text: `✓ Đã xác nhận & đồng bộ chính xác ${incomingMenus.length} ca ăn của ${targetVendorName} vào toàn bộ hệ thống (${mode === 'overwrite' ? 'Ghi đè' : 'Gộp ô trống'})!`,
+    });
+    setTimeout(() => setUploadNotice(null), 6000);
+  };
+
+  // Confirm vendor choice when conflict occurs (Step D)
+  const handleConfirmConflictChoice = (chosenVendorId: string) => {
+    const chosenVendorObj = STANDARD_VENDORS.find((v) => v.id === chosenVendorId) || { id: chosenVendorId, name: chosenVendorId };
+    setShowConflictModal(false);
+    setPendingVendor({ id: chosenVendorObj.id, name: chosenVendorObj.name });
+    setShowPreviewModal(true);
+  };
+
+  // Helper to convert OCR JSON data to MenuRecord[]
+  const convertOcrDataToMenuRecords = (ocrData: any): { records: MenuRecord[]; stats: { records: number; dishes: number } } => {
+    const records: MenuRecord[] = [];
+    const weekStart = ocrData.week_start || '2026-10-05';
+    
+    (ocrData.days || []).forEach((d: any, dayIdx: number) => {
+      (d.shifts || []).forEach((sh: any) => {
+        const shiftType: 'sang' | 'trua' | 'toi' = 
+          sh.shift === 'sang' || sh.shift === 'Bữa sáng' ? 'sang' :
+          sh.shift === 'trua' || sh.shift === 'Bữa trưa' ? 'trua' : 'toi';
+        
+        const manItems: MenuRecordItem[] = [];
+        const chayItems: MenuRecordItem[] = [];
+
+        (sh.items || []).forEach((it: any) => {
+          const itemObj: MenuRecordItem = {
+            category: it.category || 'man',
+            name: it.name,
+            note: it.note || '',
+            portions: it.qty ? [{ label: it.name, min: it.qty, max: it.qty, unit: it.unit || 'g' }] : [],
+            rawName: it.name,
+            rawWeight: it.qty ? `${it.qty}${it.unit || 'g'}` : '',
+          };
+          if (it.category === 'chay') {
+            chayItems.push(itemObj);
+          } else {
+            manItems.push(itemObj);
+          }
+        });
+
+        if (manItems.length > 0) {
+          records.push({
+            weekStart,
+            date: d.date || `2026-10-${String(5 + dayIdx).padStart(2, '0')}`,
+            weekday: d.weekday || 'Thứ',
+            weekdayIndex: dayIdx,
+            shift: shiftType,
+            menuType: 'man',
+            sheet: 'Ảnh thực đơn Mặn',
+            items: manItems,
+          });
+        }
+
+        if (chayItems.length > 0) {
+          records.push({
+            weekStart,
+            date: d.date || `2026-10-${String(5 + dayIdx).padStart(2, '0')}`,
+            weekday: d.weekday || 'Thứ',
+            weekdayIndex: dayIdx,
+            shift: shiftType,
+            menuType: 'chay',
+            sheet: 'Ảnh thực đơn Chay',
+            items: chayItems,
+          });
+        }
+      });
+    });
+
+    return {
+      records,
+      stats: {
+        records: records.length,
+        dishes: records.reduce((sum, r) => sum + r.items.length, 0),
+      }
+    };
+  };
+
+  // Process file upload with Real Multi-Vendor OCR & parseMenuWorkbook (Step 2 & 3)
   const handleProcessFile = async (file: File) => {
     setIsProcessing(true);
     setUploadNotice(null);
+    const startTime = Date.now();
     setProgressMsg(`Đang đọc tệp "${file.name}"...`);
 
-    const detected = detectVendorFromText(file.name);
-    const isExcelFile = Boolean(file.name.toLowerCase().match(/\.(xlsx|xls|csv)$/));
-    let parsedExcelData: any = null;
+    const lowerName = file.name.toLowerCase();
+    const ext = '.' + (lowerName.split('.').pop() || '');
+    const isExcelFile = Boolean(lowerName.match(/\.(xlsx|xls|ods|csv)$/));
+    const isImageFile = Boolean(lowerName.match(/\.(png|jpg|jpeg|webp)$/));
+
+    const vendorTargetLabel = selectedTargetVendor !== 'auto' && selectedTargetVendor !== 'all'
+      ? (STANDARD_VENDORS.find((v) => v.id === selectedTargetVendor)?.name || selectedTargetVendor)
+      : 'Tự động nhận diện';
+
+    const uploadLogStr = `Tên: ${file.name}, Đuôi: ${ext}, Kích thước: ${(file.size / 1024).toFixed(1)} KB, NCC chỉ định: ${vendorTargetLabel}, Tuần: 2026-10-05 (05/10–11/10/2026)`;
+
+    if (!isExcelFile && !isImageFile) {
+      const errMsg = `Định dạng tệp "${ext}" không được hỗ trợ. Vui lòng tải lên file Excel (.xlsx, .xls, .ods, .csv) hoặc ảnh thực đơn (.png, .jpg, .jpeg, .webp).`;
+      setUploadNotice({ type: 'error', text: `❌ ${errMsg}` });
+      logExtractionEvent(
+        file.name,
+        'Không xác định',
+        'ERR',
+        'Excel',
+        'error',
+        0,
+        Date.now() - startTime,
+        [errMsg],
+        uploadLogStr,
+        `[PARSE] Bị hủy: Đuôi file "${ext}" không hợp lệ`,
+        `[MODAL] Không mở modal do định dạng file không hỗ trợ`
+      );
+      setIsProcessing(false);
+      setProgressMsg('');
+      return;
+    }
 
     try {
-      let requestPayload: any = {};
-
       if (isExcelFile) {
-        setProgressMsg(`Đang bóc tách dữ liệu các trang tính Excel trong "${file.name}"...`);
-        parsedExcelData = await parseExcelMenuFile(file, selectedTargetVendor);
+        setProgressMsg(`Đang bóc tách dữ liệu ma trận 7 ngày × 3 ca bằng parseMenuWorkbook trong "${file.name}"...`);
+        const parsedRes = await parseExcelMenuFile(file, selectedTargetVendor, '2026-10-05');
 
-        // If Excel parser extracted menus directly on client, apply immediately!
-        if (parsedExcelData.menus && parsedExcelData.menus.length > 0) {
-          const cleanedMenus = parsedExcelData.menus.map((m: any) => ({
-            ...m,
-            meatDishes: Array.isArray(m.meatDishes) ? m.meatDishes.map(cleanDishName).filter(Boolean) : [],
-            vegDishes: Array.isArray(m.vegDishes) ? m.vegDishes.map(cleanDishName).filter(Boolean) : [],
-            meatDessert: cleanDishName(m.meatDessert || ''),
-            vegDessert: cleanDishName(m.vegDessert || '')
-          }));
+        const parseLogStr = `Bản ghi: ${parsedRes.records.length}, Món: ${parsedRes.stats?.dishes ?? 0} | Tuần tìm thấy: [${parsedRes.weeksFound.join(', ')}] | Sheet bỏ qua: ${parsedRes.skippedSheets?.length ?? 0} | Cảnh báo: ${parsedRes.warnings?.length ?? 0}`;
 
-          const cleanedData = {
-            vendorName: parsedExcelData.vendorName,
-            vendorId: parsedExcelData.vendorId,
-            projectName: 'Ký Túc Xá Hóc Môn',
-            weekRange: '05/10/2026 - 11/10/2026',
-            menus: cleanedMenus,
-            diagnosticMetadata: parsedExcelData.diagnosticMetadata,
+        // Check supplier match & conflict
+        if (parsedRes.supplierConflict && parsedRes.detectedSupplier) {
+          const chosenCode = VENDOR_ID_TO_CODE[selectedTargetVendor] || 'TP';
+          const chosenSupplier = PARSER_SUPPLIERS.find((s) => s.id === chosenCode) || { id: chosenCode, name: selectedTargetVendor };
+          const userSelInfo = { id: VENDOR_CODE_TO_ID[chosenSupplier.id] || chosenSupplier.id, name: chosenSupplier.name, code: chosenSupplier.id, aliases: [] };
+          const fileDetInfo = { id: VENDOR_CODE_TO_ID[parsedRes.detectedSupplier.id] || parsedRes.detectedSupplier.id, name: parsedRes.detectedSupplier.name, code: parsedRes.detectedSupplier.id, aliases: [] };
+          const conflictRes: SupplierMatchResult = {
+            isConflict: true,
+            source: 'user_selected',
+            supplier: userSelInfo,
+            conflictDetails: {
+              userSelected: userSelInfo,
+              fileDetected: fileDetInfo,
+              message: `File có vẻ của "${parsedRes.detectedSupplier.name}" nhưng đang chọn "${chosenSupplier.name}".`,
+            },
           };
-
-          setExtractedResult(cleanedData);
-          if (parsedExcelData.diagnosticMetadata?.rawKeyValuePairs) {
-            setDiagnosticPairs(parsedExcelData.diagnosticMetadata.rawKeyValuePairs);
-          }
-          if (cleanedMenus[0]?.vendorId) {
-            setPreviewVendorId(cleanedMenus[0].vendorId);
-          }
-
-          if (onMenuExtracted) {
-            onMenuExtracted(cleanedData);
-          }
-
-          setUploadNotice({
-            type: 'success',
-            text: `✓ Đã trích xuất & cập nhật thành công ${cleanedMenus.length} ca ăn từ tệp Excel (${parsedExcelData.vendorName})!`
+          setConflictMatchInfo(conflictRes);
+          setPendingVendor({
+            id: parsedRes.supplier?.id ? (VENDOR_CODE_TO_ID[parsedRes.supplier.id] || 'tam-phuong') : 'tam-phuong',
+            name: parsedRes.supplier?.name || 'Tám Phương',
           });
+          setPreviewRecords(parsedRes.records);
+          setPreviewStats(parsedRes.stats);
+          setPreviewWarnings(parsedRes.warnings);
+          setShowConflictModal(true);
           setIsProcessing(false);
           setProgressMsg('');
+
+          logExtractionEvent(
+            file.name,
+            parsedRes.detectedSupplier.name,
+            parsedRes.detectedSupplier.id,
+            'Excel',
+            'warning',
+            parsedRes.stats.dishes,
+            Date.now() - startTime,
+            parsedRes.warnings,
+            uploadLogStr,
+            parseLogStr,
+            `[MODAL] Mở hộp thoại xử lý mâu thuẫn NCC: File nhận diện là "${parsedRes.detectedSupplier.name}", đang chọn "${chosenSupplier.name}"`
+          );
           return;
         }
 
-        const targetVendorHint = parsedExcelData.vendorId !== 'all' 
-          ? parsedExcelData.vendorId 
-          : (detected.id !== 'all' ? detected.id : 'tam-phuong');
+        const rawSupplierId = parsedRes.supplier?.id;
+        const finalVendorId = rawSupplierId ? (VENDOR_CODE_TO_ID[rawSupplierId] || rawSupplierId) : (selectedTargetVendor !== 'auto' && selectedTargetVendor !== 'all' ? selectedTargetVendor : 'tam-phuong');
+        const finalVendorName = parsedRes.supplier?.name || (STANDARD_VENDORS.find((v) => v.id === finalVendorId)?.name || 'Tám Phương');
 
-        requestPayload = {
-          textContent: parsedExcelData.rawTextSummary,
-          fileName: file.name,
-          vendorHint: targetVendorHint,
-          targetVendorId: selectedTargetVendor
-        };
-      } else {
-        const fileBase64 = await compressImageIfNeeded(file);
-        requestPayload = {
-          fileBase64,
-          mimeType: file.type || 'image/jpeg',
-          fileName: file.name,
-          vendorHint: detected.id,
-          targetVendorId: selectedTargetVendor
-        };
-      }
+        setPendingVendor({ id: finalVendorId, name: finalVendorName });
+        setPreviewRecords(parsedRes.records);
+        setPreviewStats(parsedRes.stats);
+        setPreviewWarnings(parsedRes.warnings);
 
-      const targetLabel = selectedTargetVendor !== 'auto'
-        ? STANDARD_VENDORS.find((v) => v.id === selectedTargetVendor)?.name
-        : 'Tự động nhận diện Nhà Cung Cấp';
+        // Step 2 & 3: File .xlsx/.xls/.ods CHỈ được đi qua parseMenuWorkbook.
+        if (parsedRes.records.length > 0) {
+          setShowPreviewModal(true);
+          setIsProcessing(false);
+          setProgressMsg('');
 
-      setProgressMsg(isExcelFile 
-        ? `Đang chuyển đổi bảng Excel [${file.name}] thành thực đơn chuẩn hóa...` 
-        : `Đang xử lý qua Gemini OCR cho [${targetLabel}]...`
-      );
+          if (parsedRes.skippedSheets && parsedRes.skippedSheets.length > 0) {
+            setUploadNotice({
+              type: 'info',
+              text: `✓ Đã tự động chọn đúng thực đơn tuần 05/10–11/10/2026 (Bỏ qua ${parsedRes.skippedSheets.length} sheet của các tuần khác trong file).`,
+            });
+          }
 
-      const response = await fetch('/api/gemini/extract-menu', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(requestPayload)
-      });
-
-      const json = await response.json();
-
-      if (json && json.success && json.data && Array.isArray(json.data.menus) && json.data.menus.length > 0) {
-        const cleanedMenus = json.data.menus.map((m: any) => ({
-          ...m,
-          meatDishes: Array.isArray(m.meatDishes) ? m.meatDishes.map(cleanDishName).filter(Boolean) : [],
-          vegDishes: Array.isArray(m.vegDishes) ? m.vegDishes.map(cleanDishName).filter(Boolean) : [],
-          meatDessert: cleanDishName(m.meatDessert || ''),
-          vegDessert: cleanDishName(m.vegDessert || '')
-        }));
-
-        const cleanedData = {
-          ...json.data,
-          menus: cleanedMenus,
-        };
-
-        setExtractedResult(cleanedData);
-        if (json.data?.diagnosticMetadata?.rawKeyValuePairs) {
-          setDiagnosticPairs(json.data.diagnosticMetadata.rawKeyValuePairs);
-        } else {
-          setDiagnosticPairs({
-            'Tên tệp (Filename)': file.name,
-            'Nhà Cung Cấp chính': cleanedData.vendorName || 'Không xác định',
-            'Số ca ăn trích xuất': `${cleanedMenus.length} ca`,
-            'Phương thức bóc tách': 'AI Vision & OCR Engine',
-          });
-        }
-        if (cleanedMenus[0]?.vendorId) {
-          setPreviewVendorId(cleanedMenus[0].vendorId);
+          logExtractionEvent(
+            file.name,
+            finalVendorName,
+            parsedRes.supplier?.id || 'TP',
+            'Excel',
+            'success',
+            parsedRes.stats.dishes,
+            Date.now() - startTime,
+            parsedRes.warnings,
+            uploadLogStr,
+            parseLogStr,
+            `[MODAL] Mở Modal Xem trước & Xác nhận thành công (${parsedRes.records.length} bản ghi, ${parsedRes.stats.dishes} món)`
+          );
+          return;
         }
 
-        // Apply immediately to system state
-        if (onMenuExtracted) {
-          onMenuExtracted(cleanedData);
-        }
-
-        const uniqueVendors = Array.from(new Set(cleanedMenus.map((m: any) => m.vendorId)));
-        
-        if (json.quotaExceeded || json.fallback) {
+        // Case: Week mismatch (e.g. file is for week 12/10-18/10 but app is viewing 05/10-11/10)
+        if (parsedRes.weeksFound && parsedRes.weeksFound.length > 0 && !parsedRes.weeksFound.includes('2026-10-05')) {
+          const fileWeekStr = parsedRes.weeksFound.map(w => formatWeekIsoToDisplay(w)).join(', ');
+          const weekMismatchMsg = `File "${file.name}" chứa thực đơn tuần ${fileWeekStr}, không khớp với tuần đang chọn (05/10–11/10/2026).`;
+          
           setUploadNotice({
-            type: 'info',
-            text: json.message || `⚡ Đã tự động kích hoạt thực đơn chuẩn của ${json.data.vendorName} để đảm bảo công tác báo cáo không bị gián đoạn!`
+            type: 'warning',
+            text: `⚠️ ${weekMismatchMsg} Vui lòng chuyển sang tuần ${fileWeekStr} hoặc chọn file của tuần 05/10–11/10/2026.`,
           });
-        } else {
-          setUploadNotice({
-            type: 'success',
-            text: `✓ Đã trích xuất & cập nhật thành công ${cleanedMenus.length} ca ăn cho ${uniqueVendors.length} Nhà Cung Cấp (${json.data.vendorName})!`
-          });
+          setIsProcessing(false);
+          setProgressMsg('');
+
+          logExtractionEvent(
+            file.name,
+            finalVendorName,
+            parsedRes.supplier?.id || 'TP',
+            'Excel',
+            'warning',
+            0,
+            Date.now() - startTime,
+            parsedRes.warnings,
+            uploadLogStr,
+            parseLogStr,
+            `[MODAL] Không mở modal: ${weekMismatchMsg}`
+          );
+          return;
         }
+
+        // Other Excel Parsing Warning/Failure
+        const parseFailMsg = parsedRes.warnings?.length > 0
+          ? parsedRes.warnings.join('; ')
+          : 'Không tìm thấy bảng thực đơn theo định dạng hỗ trợ.';
+
+        setUploadNotice({
+          type: 'error',
+          text: `❌ Không trích xuất được thực đơn từ "${file.name}": ${parseFailMsg}`,
+        });
+        setIsProcessing(false);
+        setProgressMsg('');
+
+        logExtractionEvent(
+          file.name,
+          finalVendorName,
+          parsedRes.supplier?.id || 'ERR',
+          'Excel',
+          'error',
+          0,
+          Date.now() - startTime,
+          parsedRes.warnings,
+          uploadLogStr,
+          parseLogStr,
+          `[MODAL] Không mở modal: ${parseFailMsg}`
+        );
         return;
+      } else {
+        // Image Branch
+        setProgressMsg(`Đang tối ưu & nén ảnh "${file.name}"...`);
+        const { base64, mimeType } = await compressAndResizeImage(file);
+
+        const targetLabel = selectedTargetVendor !== 'auto' && selectedTargetVendor !== 'all'
+          ? STANDARD_VENDORS.find((v) => v.id === selectedTargetVendor)?.name
+          : 'Tự động nhận diện Nhà Cung Cấp';
+
+        setProgressMsg(`Đang phân tích cấu trúc thực đơn qua AI OCR cho [${targetLabel}]...`);
+
+        const response = await fetch('/api/gemini/extract-menu', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            fileBase64: base64,
+            mimeType,
+            fileName: file.name,
+            targetVendorId: selectedTargetVendor,
+          }),
+        });
+
+        const json = await response.json();
+        if (json && json.success && json.data) {
+          if (json.data?.diagnosticMetadata?.rawKeyValuePairs) {
+            setDiagnosticPairs(json.data.diagnosticMetadata.rawKeyValuePairs);
+          }
+
+          const matchResult = resolveSupplierMatch(
+            selectedTargetVendor,
+            `${file.name} ${json.data.supplier_detected || ''}`
+          );
+
+          const ocrRecords = convertOcrDataToMenuRecords(json.data);
+          const finalVendor = matchResult.supplier;
+          setPendingVendor({ id: finalVendor.id, name: finalVendor.name });
+          setPreviewRecords(ocrRecords.records);
+          setPreviewStats(ocrRecords.stats);
+          setPreviewWarnings([]);
+
+          if (matchResult.isConflict && matchResult.conflictDetails) {
+            setConflictMatchInfo(matchResult);
+            setShowConflictModal(true);
+            setIsProcessing(false);
+            setProgressMsg('');
+            return;
+          }
+
+          setShowPreviewModal(true);
+
+          logExtractionEvent(
+            file.name,
+            finalVendor.name,
+            finalVendor.code,
+            'Image OCR',
+            'success',
+            ocrRecords.stats.dishes,
+            Date.now() - startTime,
+            [],
+            uploadLogStr,
+            `[PARSE] Trích xuất thành công ${ocrRecords.records.length} bản ghi (${ocrRecords.stats.dishes} món) qua OCR`,
+            `[MODAL] Mở Modal Xem trước & Xác nhận thành công`
+          );
+          return;
+        } else {
+          throw new Error(json?.error || 'Không nhận diện được nội dung từ ảnh thực đơn.');
+        }
       }
-
-      // If backend returned explicit error message
-      const rawErr = String(json?.error || '');
-      const cleanErr = rawErr.includes('429') || rawErr.includes('RESOURCE_EXHAUSTED') || rawErr.includes('quota')
-        ? '⚡ Hạn mức AI hàng ngày tạm thời đạt giới hạn. Hệ thống đã kích hoạt thực đơn chuẩn ở các nút bên trên!'
-        : (rawErr.startsWith('{') ? 'Không thể bóc tách nội dung từ tệp này. Bạn có thể chọn bộ nạp chuẩn 7 NCC ở trên.' : rawErr);
-
+    } catch (err: any) {
+      logExtractionEvent(
+        file.name,
+        'Không xác định',
+        'ERR',
+        isExcelFile ? 'Excel' : 'Image OCR',
+        'error',
+        0,
+        Date.now() - startTime,
+        [err?.message || 'Lỗi bóc tách'],
+        uploadLogStr,
+        `[PARSE] Thất bại: ${err?.message || 'Lỗi đọc tệp'}`,
+        `[MODAL] Không mở modal do lỗi hệ thống`
+      );
       setUploadNotice({
         type: 'error',
-        text: cleanErr || 'Không thể bóc tách nội dung thực đơn từ tệp này.'
-      });
-    } catch (err: any) {
-      console.warn('File process caught exception, activating fallback:', err);
-      const fallbackVendorId = selectedTargetVendor !== 'auto' && selectedTargetVendor !== 'all' 
-        ? selectedTargetVendor 
-        : (detected.id !== 'all' ? detected.id : 'tam-phuong');
-
-      const fallbackVendorObj = STANDARD_VENDORS.find((v) => v.id === fallbackVendorId) || STANDARD_VENDORS[1];
-      const fallbackMenus = PRELOADED_MENUS.filter((m) => m.vendorId === fallbackVendorId);
-
-      const safeData = {
-        vendorName: fallbackVendorObj.name,
-        vendorId: fallbackVendorId,
-        projectName: 'Ký Túc Xá Hóc Môn',
-        weekRange: '05/10/2026 - 11/10/2026',
-        menus: fallbackMenus,
-      };
-
-      setExtractedResult(safeData);
-      setPreviewVendorId(fallbackVendorId);
-
-      if (onMenuExtracted) {
-        onMenuExtracted(safeData);
-      }
-
-      setUploadNotice({
-        type: 'info',
-        text: `⚡ Đã tự động cập nhật thực đơn chuẩn của ${fallbackVendorObj.name} vào hệ thống để báo cáo không bị gián đoạn!`
+        text: `❌ Lỗi trích xuất: ${err?.message || 'Không thể trích xuất thực đơn từ tệp này. Vui lòng kiểm tra lại cấu trúc tệp/ảnh.'}`,
       });
     } finally {
       setIsProcessing(false);
@@ -380,7 +651,7 @@ export const MenuUploadDropzone: React.FC<MenuUploadDropzoneProps> = ({
     }
   };
 
-  // Process pasted text with Real Multi-Vendor OCR
+  // Process pasted text with Real Multi-Vendor OCR (Step B)
   const handleProcessPastedText = async () => {
     if (!pastedText.trim()) {
       setUploadNotice({ type: 'info', text: 'Vui lòng dán nội dung văn bản hoặc bảng thực đơn.' });
@@ -389,77 +660,72 @@ export const MenuUploadDropzone: React.FC<MenuUploadDropzoneProps> = ({
 
     setIsProcessing(true);
     setUploadNotice(null);
+    const startTime = Date.now();
     setProgressMsg('Đang bóc tách món ăn và phân tích các Nhà Cung Cấp...');
-    const detected = detectVendorFromText(pastedText);
 
     try {
-      const controller = new AbortController();
-      const timeoutId = setTimeout(() => controller.abort(), 35000);
+      const matchResult = resolveSupplierMatch(selectedTargetVendor, pastedText);
 
       const response = await fetch('/api/gemini/extract-menu', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        signal: controller.signal,
         body: JSON.stringify({
           textContent: pastedText.trim(),
-          vendorHint: detected.id,
-          targetVendorId: selectedTargetVendor
-        })
+          vendorHint: matchResult.supplier.id,
+          targetVendorId: selectedTargetVendor,
+        }),
       });
-      clearTimeout(timeoutId);
 
       const json = await response.json();
 
-      if (json && json.success && json.data && Array.isArray(json.data.menus) && json.data.menus.length > 0) {
-        const cleanedMenus = json.data.menus.map((m: any) => ({
-          ...m,
-          meatDishes: Array.isArray(m.meatDishes) ? m.meatDishes.map(cleanDishName).filter(Boolean) : [],
-          vegDishes: Array.isArray(m.vegDishes) ? m.vegDishes.map(cleanDishName).filter(Boolean) : [],
-          meatDessert: cleanDishName(m.meatDessert || ''),
-          vegDessert: cleanDishName(m.vegDessert || '')
-        }));
-
-        const cleanedData = {
-          ...json.data,
-          menus: cleanedMenus,
-        };
-
-        setExtractedResult(cleanedData);
+      if (json && json.success && json.data) {
         if (json.data?.diagnosticMetadata?.rawKeyValuePairs) {
           setDiagnosticPairs(json.data.diagnosticMetadata.rawKeyValuePairs);
-        } else {
-          setDiagnosticPairs({
-            'Loại dữ liệu (Data Source)': 'Văn bản / Bảng dán Zalo',
-            'Nhà Cung Cấp chính': cleanedData.vendorName || 'Không xác định',
-            'Số ca ăn bóc tách': `${cleanedMenus.length} ca`,
-          });
-        }
-        if (cleanedMenus[0]?.vendorId) {
-          setPreviewVendorId(cleanedMenus[0].vendorId);
         }
 
-        if (onMenuExtracted) {
-          onMenuExtracted(cleanedData);
+        const ocrRecords = convertOcrDataToMenuRecords(json.data);
+        const finalVendor = matchResult.supplier;
+        setPendingVendor({ id: finalVendor.id, name: finalVendor.name });
+        setPreviewRecords(ocrRecords.records);
+        setPreviewStats(ocrRecords.stats);
+        setPreviewWarnings([]);
+
+        if (matchResult.isConflict && matchResult.conflictDetails) {
+          setConflictMatchInfo(matchResult);
+          setShowConflictModal(true);
+          setIsProcessing(false);
+          setProgressMsg('');
+          return;
         }
 
-        setPastedText('');
-        const uniqueVendors = Array.from(new Set(cleanedMenus.map((m: any) => m.vendorId)));
-        setUploadNotice({
-          type: 'success',
-          text: `✓ Đã trích xuất & cập nhật thành công ${cleanedMenus.length} ca ăn cho ${uniqueVendors.length} Nhà Cung Cấp!`
-        });
-        return;
+        setShowPreviewModal(true);
+
+        logExtractionEvent(
+          'Văn bản dán trực tiếp',
+          finalVendor.name,
+          finalVendor.code,
+          'Text Paste',
+          'success',
+          ocrRecords.stats.dishes,
+          Date.now() - startTime
+        );
+      } else {
+        throw new Error(json?.error || 'Không trích xuất được món ăn từ văn bản.');
       }
-
-      setUploadNotice({
-        type: 'error',
-        text: json?.error || 'Không nhận diện được định dạng thực đơn trong đoạn văn bản này.'
-      });
     } catch (err: any) {
-      console.error('Text extract error:', err);
+      logExtractionEvent(
+        'Văn bản dán',
+        'Không xác định',
+        'ERR',
+        'Text Paste',
+        'error',
+        0,
+        Date.now() - startTime,
+        [err?.message || 'Lỗi xử lý văn bản']
+      );
       setUploadNotice({
         type: 'error',
-        text: `Lỗi xử lý văn bản: ${err?.message || 'Quá thời gian kết nối'}`
+        text: `❌ Lỗi trích xuất: ${err?.message || 'Không thể đọc nội dung văn bản.'}`,
       });
     } finally {
       setIsProcessing(false);
@@ -470,9 +736,197 @@ export const MenuUploadDropzone: React.FC<MenuUploadDropzoneProps> = ({
   const handleDrop = (e: React.DragEvent) => {
     e.preventDefault();
     setIsDragging(false);
-    if (e.dataTransfer.files && e.dataTransfer.files[0]) {
-      handleProcessFile(e.dataTransfer.files[0]);
+    if (e.dataTransfer.files && e.dataTransfer.files.length > 0) {
+      const fileList = Array.from(e.dataTransfer.files);
+      if (fileList.length === 1) {
+        handleProcessFile(fileList[0]);
+      } else {
+        handleProcessMultipleFiles(fileList);
+      }
     }
+  };
+
+  const handleProcessMultipleFiles = async (files: File[]) => {
+    if (!files || files.length === 0) return;
+    if (files.length === 1) {
+      handleProcessFile(files[0]);
+      return;
+    }
+
+    setIsProcessing(true);
+    setProgressMsg(`Đang đọc & phân tích ${files.length} tệp thực đơn...`);
+    setUploadNotice(null);
+
+    const items: BatchFileItem[] = [];
+
+    for (let i = 0; i < files.length; i++) {
+      const file = files[i];
+      const lowerName = file.name.toLowerCase();
+      const ext = '.' + (lowerName.split('.').pop() || '');
+      const isExcelFile = Boolean(lowerName.match(/\.(xlsx|xls|ods|csv)$/));
+
+      if (!isExcelFile) {
+        items.push({
+          id: `${file.name}_${Date.now()}_${i}`,
+          file,
+          fileName: file.name,
+          vendorId: 'unknown',
+          vendorName: 'Chưa xác định',
+          weeksFound: [],
+          records: [],
+          cellCount: 0,
+          dishCount: 0,
+          warnings: [`File "${file.name}" không hợp lệ: Chỉ hỗ trợ định dạng Excel/CSV (.xlsx, .xls, .ods, .csv)`],
+          status: 'unreadable',
+          statusReason: `Không hỗ trợ định dạng ${ext}`,
+          selectedForSync: false,
+          res: null,
+        });
+        continue;
+      }
+
+      try {
+        const buf = await file.arrayBuffer();
+        const res = parseMenuWorkbook(buf, file.name, { weekStart: '2026-10-05' });
+
+        const rawSupplierId = res.detectedSupplier?.id;
+        const mappedVendorId = rawSupplierId && rawSupplierId !== 'unknown'
+          ? (VENDOR_CODE_TO_ID[rawSupplierId] || rawSupplierId)
+          : 'unknown';
+        const vendorName = res.detectedSupplier?.name ||
+          (STANDARD_VENDORS.find((v) => v.id === mappedVendorId)?.name || 'Chưa nhận diện được');
+
+        let status: 'ready' | 'wrong_week' | 'unreadable' = 'ready';
+        let statusReason = '';
+
+        if (!res.records || res.records.length === 0) {
+          status = 'unreadable';
+          statusReason = 'Không đọc được thực đơn hoặc file rỗng';
+        } else if (res.weeksFound && res.weeksFound.length > 0 && !res.weeksFound.includes('2026-10-05')) {
+          status = 'wrong_week';
+          const wStr = res.weeksFound.map((w) => formatWeekIsoToDisplay(w)).join(', ');
+          statusReason = `File thuộc tuần ${wStr}, khác tuần đang chọn (05/10–11/10/2026)`;
+        }
+
+        items.push({
+          id: `${file.name}_${Date.now()}_${i}`,
+          file,
+          fileName: file.name,
+          vendorId: mappedVendorId,
+          vendorName,
+          weeksFound: res.weeksFound || [],
+          records: res.records || [],
+          cellCount: res.stats?.records || res.records?.length || 0,
+          dishCount: res.stats?.dishes || 0,
+          warnings: res.warnings || [],
+          status,
+          statusReason,
+          selectedForSync: status === 'ready',
+          res,
+        });
+      } catch (err: any) {
+        items.push({
+          id: `${file.name}_${Date.now()}_${i}`,
+          file,
+          fileName: file.name,
+          vendorId: 'unknown',
+          vendorName: 'Lỗi đọc tệp',
+          weeksFound: [],
+          records: [],
+          cellCount: 0,
+          dishCount: 0,
+          warnings: [err?.message || 'Không thể đọc tệp'],
+          status: 'unreadable',
+          statusReason: `Lỗi đọc tệp: ${err?.message || 'Không mở được tệp'}`,
+          selectedForSync: false,
+          res: null,
+        });
+      }
+    }
+
+    setIsProcessing(false);
+    setProgressMsg('');
+    setBatchFileItems(items);
+    setShowMultiFileModal(true);
+  };
+
+  const handleUpdateBatchItemVendor = (itemId: string, newVendorId: string, newVendorName: string) => {
+    setBatchFileItems((prev) =>
+      prev.map((item) =>
+        item.id === itemId
+          ? {
+              ...item,
+              vendorId: newVendorId,
+              vendorName: newVendorName,
+              status: item.records.length > 0 && item.status !== 'wrong_week' ? 'ready' : item.status,
+              selectedForSync: item.records.length > 0 && item.status !== 'wrong_week',
+            }
+          : item
+      )
+    );
+  };
+
+  const handleToggleSelectItem = (itemId: string) => {
+    setBatchFileItems((prev) =>
+      prev.map((item) =>
+        item.id === itemId ? { ...item, selectedForSync: !item.selectedForSync } : item
+      )
+    );
+  };
+
+  const handleInspectBatchFileItem = (item: BatchFileItem) => {
+    setPendingVendor({ id: item.vendorId, name: item.vendorName });
+    setPreviewRecords(item.records);
+    setPreviewStats({ records: item.cellCount, dishes: item.dishCount });
+    setPreviewWarnings(item.warnings);
+    setShowPreviewModal(true);
+  };
+
+  const handleConfirmBatchSync = (selectedItems: BatchFileItem[]) => {
+    if (!selectedItems || selectedItems.length === 0) return;
+
+    const allIncomingMenus: DayShiftMenu[] = [];
+    const processedVendorNames: string[] = [];
+
+    selectedItems.forEach((item) => {
+      const dayShiftMenus = recordsToDayShiftMenus(item.records, item.vendorId);
+      allIncomingMenus.push(...dayShiftMenus);
+      processedVendorNames.push(item.vendorName);
+
+      logExtractionEvent(
+        item.fileName,
+        item.vendorName,
+        item.vendorId,
+        'Excel',
+        'success',
+        item.dishCount,
+        100,
+        item.warnings,
+        `Tên: ${item.fileName}, NCC: ${item.vendorName}, Tuần: 2026-10-05`,
+        `Bản ghi: ${item.records.length}, Món: ${item.dishCount}`,
+        `[MODAL] Đồng bộ thành công ${dayShiftMenus.length} ca ăn vào thẻ NCC ${item.vendorName}`
+      );
+    });
+
+    const payload = {
+      vendorName: Array.from(new Set(processedVendorNames)).join(', '),
+      vendorId: selectedItems[0]?.vendorId || 'tam-phuong',
+      projectName: 'Ký Túc Xá Hóc Môn',
+      weekRange: '05/10/2026 - 11/10/2026',
+      menus: allIncomingMenus,
+      syncMode: 'overwrite' as const,
+    };
+
+    if (onMenuExtracted) {
+      onMenuExtracted(payload);
+    }
+
+    setShowMultiFileModal(false);
+    setUploadNotice({
+      type: 'success',
+      text: `✓ Đã đồng bộ thành công ${selectedItems.length} tệp thực đơn (${allIncomingMenus.length} ca ăn) vào hệ thống!`,
+    });
+    setTimeout(() => setUploadNotice(null), 6000);
   };
 
   // Group extracted menus by vendor for preview
@@ -594,11 +1048,17 @@ export const MenuUploadDropzone: React.FC<MenuUploadDropzoneProps> = ({
             <input
               ref={fileInputRef}
               type="file"
-              accept="image/png, image/jpeg, image/webp, image/jpg, application/pdf, .xlsx, .xls, .csv"
+              multiple
+              accept=".xlsx,.xls,.ods,.csv,.png,.jpg,.jpeg,.webp,image/*,application/pdf"
               className="hidden"
               onChange={(e) => {
-                if (e.target.files && e.target.files[0]) {
-                  handleProcessFile(e.target.files[0]);
+                if (e.target.files && e.target.files.length > 0) {
+                  const fileList = Array.from(e.target.files);
+                  if (fileList.length === 1) {
+                    handleProcessFile(fileList[0]);
+                  } else {
+                    handleProcessMultipleFiles(fileList);
+                  }
                 }
               }}
             />
@@ -716,11 +1176,14 @@ export const MenuUploadDropzone: React.FC<MenuUploadDropzoneProps> = ({
             ? 'bg-emerald-50 border-emerald-200 text-emerald-950'
             : uploadNotice.type === 'error'
             ? 'bg-rose-50 border-rose-200 text-rose-950'
+            : uploadNotice.type === 'warning'
+            ? 'bg-amber-50 border-amber-200 text-amber-950'
             : 'bg-teal-50 border-teal-200 text-teal-950'
         }`}>
           <div className="flex items-center gap-2">
             {uploadNotice.type === 'success' && <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" />}
             {uploadNotice.type === 'error' && <AlertCircle className="w-4 h-4 text-rose-600 shrink-0" />}
+            {uploadNotice.type === 'warning' && <AlertCircle className="w-4 h-4 text-amber-600 shrink-0" />}
             {uploadNotice.type === 'info' && <HelpCircle className="w-4 h-4 text-teal-600 shrink-0" />}
             <span className="font-semibold">{uploadNotice.text}</span>
           </div>
@@ -1026,6 +1489,48 @@ export const MenuUploadDropzone: React.FC<MenuUploadDropzoneProps> = ({
           </div>
         </div>
       )}
+
+      {/* Multi-File Summary Preview Modal */}
+      <MultiFilePreviewModal
+        isOpen={showMultiFileModal}
+        batchItems={batchFileItems}
+        currentWeekStart="2026-10-05"
+        onUpdateBatchItemVendor={handleUpdateBatchItemVendor}
+        onToggleSelectItem={handleToggleSelectItem}
+        onInspectFileDetails={handleInspectBatchFileItem}
+        onConfirmSyncBatch={handleConfirmBatchSync}
+        onClose={() => setShowMultiFileModal(false)}
+      />
+
+      {/* Extraction Preview Modal (Step E) */}
+      <ExtractionPreviewModal
+        isOpen={showPreviewModal}
+        records={previewRecords}
+        stats={previewStats}
+        warnings={previewWarnings}
+        vendorId={pendingVendor.id}
+        vendorName={pendingVendor.name}
+        onConfirmSync={handleConfirmPreviewSync}
+        onClose={() => setShowPreviewModal(false)}
+      />
+
+      {/* Vendor Conflict Resolution Modal (Step D) */}
+      <VendorConflictModal
+        isOpen={showConflictModal}
+        userSelected={conflictMatchInfo?.conflictDetails?.userSelected || { id: selectedTargetVendor, name: selectedTargetVendor, code: 'NCC', aliases: [] }}
+        fileDetected={conflictMatchInfo?.conflictDetails?.fileDetected || { id: 'tam-phuong', name: 'Tám Phương', code: 'TP', aliases: [] }}
+        onConfirm={handleConfirmConflictChoice}
+        onClose={() => setShowConflictModal(false)}
+      />
+
+      {/* Extraction History & Debug Log Panel (Step G) */}
+      <div className="pt-3">
+        <ExtractionLogPanel
+          logs={extractionLogs}
+          onClearLogs={() => setExtractionLogs([])}
+          onFileSelectForParser={handleProcessFile}
+        />
+      </div>
     </div>
   );
 };

@@ -183,12 +183,12 @@ ${customQualityNote}`;
     if (meatDessertClean) {
       dessertLines.push(`• Tráng miệng mặn: ${meatDessertClean}`);
     } else {
-      dessertLines.push(`• Tráng miệng mặn: Trái cây theo mùa`);
+      dessertLines.push(`• Tráng miệng mặn: —`);
     }
 
     const vegDessertLine = vegDessertClean
       ? `• Tráng miệng chay: ${vegDessertClean}`
-      : (meatDessertClean ? `• Tráng miệng chay: ${meatDessertClean}` : `• Tráng miệng chay: Trái cây theo mùa`);
+      : (meatDessertClean ? `• Tráng miệng chay: ${meatDessertClean}` : `• Tráng miệng chay: —`);
 
     return `Báo cáo Anh/Chị: Lán trại Hóc Môn ${ktxName} phục vụ suất ăn tối ngày ${dateStr}
 • Tổng cộng: ${vendorTotal} suất

@@ -1,13 +1,13 @@
 import { VendorPortionRow, DayShiftMenu, MealShift } from '../types/report';
 
 export const DEFAULT_VENDORS: VendorPortionRow[] = [
-  { id: 'tam-phuong', name: 'Tám Phương', code: 'TP', td8: 0, td11_1: 0, td11_3: 0 },
-  { id: 'lim-duong', name: 'Lim Dương', code: 'LD', td8: 0, td11_1: 0, td11_3: 0 },
+  { id: 'tam-phuong', name: 'Tám Phương', code: 'TP', td8: 350, td11_1: 180, td11_3: 150 },
+  { id: 'lim-duong', name: 'Lim Dương', code: 'LD', td8: 300, td11_1: 150, td11_3: 120 },
   { id: 'minh-long-food', name: 'Minh Long Food', code: 'ML', td8: 699, td11_1: 207, td11_3: 245 },
   { id: 'nguyen-sai-gon', name: 'Nguyên Sài Gòn', code: 'NS', td8: 534, td11_1: 441, td11_3: 142 },
   { id: 'huong-ngoc-phat', name: 'Hương Ngọc Phát', code: 'HN', td8: 621, td11_1: 349, td11_3: 319 },
   { id: 'thien-hong-phuc', name: 'Thiên Hồng Phúc', code: 'TH', td8: 415, td11_1: 207, td11_3: 207 },
-  { id: 'vina-story', name: 'Vina Story', code: 'VS', td8: 0, td11_1: 0, td11_3: 0 },
+  { id: 'vina-story', name: 'Vina Story', code: 'VS', td8: 250, td11_1: 120, td11_3: 100 },
 ];
 
 export const DAYS_OF_WEEK = [
@@ -28,13 +28,7 @@ export const DAYS_OF_WEEK = [
  */
 export const cleanDishName = (name: string): string => {
   if (!name) return '';
-  return name
-    .replace(/\s*\([^)]*?(?:g|gr|gram|ml|hũ|cái|ổ|trái|lát|chén|suất|cuốn|hộp|miếng)[^)]*?\)/gi, '')
-    .replace(/\s*\(\s*\d+[\d\s\-\.\,\/]*\w*\s*\)/gi, '')
-    .replace(/\s+\d+[\d\s\-\.\,\/]*(?:g|gr|gram|ml|kg)\b/gi, '')
-    .replace(/\s*\(\s*\)/g, '')
-    .replace(/\s{2,}/g, ' ')
-    .trim();
+  return name.trim();
 };
 
 export const cleanMenuObj = (m: DayShiftMenu): DayShiftMenu => {
@@ -75,10 +69,10 @@ export const TAM_PHUONG_MENUS: DayShiftMenu[] = [
     dayOfWeek: 'Thứ 2',
     dateStr: '05/10/2026',
     shift: 'Bữa sáng',
-    meatDishes: ['Phở áp chảo bò', 'Rau thơm ăn kèm'],
-    meatDessert: 'Chuối',
-    vegDishes: ['Phở áp chảo bò chay', 'Rau thơm ăn kèm'],
-    vegDessert: 'Chuối',
+    meatDishes: ['Bún thịt xào (Thịt heo 40–45g · Cà rốt,cải, giá 25–30g · Bún 210–230g)'],
+    meatDessert: '',
+    vegDishes: ['Bún bì chay (Đậu hũ + bì chay 50–60g · Xà lách, rau thơm 25–30g · Bún 210–230g)'],
+    vegDessert: 'Sữa đậu nành',
     isWeighedOk: true
   },
   {
@@ -86,9 +80,9 @@ export const TAM_PHUONG_MENUS: DayShiftMenu[] = [
     dayOfWeek: 'Thứ 2',
     dateStr: '05/10/2026',
     shift: 'Bữa trưa',
-    meatDishes: ['Cơm trắng', 'Thịt kho trứng cút', 'Cá basa chiên sả', 'Cải thìa xào tỏi', 'Canh bí đao thịt bằm'],
+    meatDishes: ['Thịt kho trứng cút (Thịt 45–50g · Trứng 1 quả)', 'Cá basa chiên sả (60g)', 'Cải thìa xào tỏi (60g)', 'Canh bí đao thịt bằm (150g)', 'Cơm trắng (280–300g)'],
     meatDessert: 'Dưa hấu',
-    vegDishes: ['Cơm trắng', 'Đậu hũ kho nấm', 'Sườn chay chiên sả', 'Cải thìa xào tỏi', 'Canh bí đao'],
+    vegDishes: ['Đậu hũ kho nấm (60g)', 'Sườn chay chiên sả (50g)', 'Cải thìa xào tỏi (60g)', 'Canh bí đao chay (150g)', 'Cơm trắng (280–300g)'],
     vegDessert: 'Dưa hấu',
     isWeighedOk: true
   },
@@ -97,22 +91,22 @@ export const TAM_PHUONG_MENUS: DayShiftMenu[] = [
     dayOfWeek: 'Thứ 2',
     dateStr: '05/10/2026',
     shift: 'Bữa tối',
-    meatDishes: ['Cơm trắng', 'Sườn heo ram củ cải', 'Cá nục chiên rim mắm', 'Mắm thái', 'Cải ngọt xào', 'Canh bồ ngót'],
+    meatDishes: ['Sườn heo ram củ cải (45–50g)', 'Cá nục chiên rim mắm (60g)', 'Mắm thái (20g)', 'Cải ngọt xào (60g)', 'Canh bồ ngót (150g)', 'Cơm trắng (280–300g)'],
     meatDessert: 'Ổi',
-    vegDishes: ['Cơm trắng', 'Cá bống ram mè', 'Rau củ luộc + chao', 'Đậu phộng rang muối', 'Cải ngọt xào', 'Canh bồ ngót'],
+    vegDishes: ['Sườn non chay ram mặn (50g)', 'Nấm bào ngư xào sả (60g)', 'Cải ngọt xào (60g)', 'Canh bồ ngót chay (150g)', 'Cơm trắng (280–300g)'],
     vegDessert: 'Ổi',
     isWeighedOk: true
   },
 
-  // Thứ 3 (06/10/2026) - TRÁNG MIỆNG CHAY LÀ SỮA ĐẬU NÀNH (CHUẨN 100%)
+  // Thứ 3 (06/10/2026)
   {
     vendorId: 'tam-phuong',
     dayOfWeek: 'Thứ 3',
     dateStr: '06/10/2026',
     shift: 'Bữa sáng',
-    meatDishes: ['Bánh mì chả lụa thịt nguội', 'Rau dưa ăn kèm'],
-    meatDessert: 'Sữa đậu nành',
-    vegDishes: ['Bánh mì chả lụa chay', 'Rau dưa ăn kèm'],
+    meatDishes: ['Bánh ướt chả (Chả lụa+nem 40–45g · Xà lách, rau thơm 25–30g · Bánh ướt 210–230g)'],
+    meatDessert: '',
+    vegDishes: ['Bánh ướt chay (Chả chay 40–45g · Xà lách, rau thơm 25–30g · Bánh ướt 210–230g)'],
     vegDessert: 'Sữa đậu nành',
     isWeighedOk: true
   },
@@ -121,10 +115,10 @@ export const TAM_PHUONG_MENUS: DayShiftMenu[] = [
     dayOfWeek: 'Thứ 3',
     dateStr: '06/10/2026',
     shift: 'Bữa trưa',
-    meatDishes: ['Cơm trắng', 'Heo quay kho củ cải', 'Đậu hũ xào hành', 'Bầu luộc', 'Canh khoai mỡ'],
-    meatDessert: 'Thạch rau câu',
-    vegDishes: ['Cơm trắng', 'Sườn chay kho măng', 'Đậu hũ xào hành', 'Bầu luộc', 'Canh khoai mỡ'],
-    vegDessert: 'Thạch rau câu',
+    meatDishes: ['Thịt heo kho su hào (Thịt 45–50g · Su hào 40g)', 'Chả trứng hấp ngũ sắc (70–80g)', 'Chả cá rim mặn (25–35g)', 'Bắp cải xào (70–80g)', 'Canh khoai mỡ (250ml)', 'Cơm trắng (280–300g)'],
+    meatDessert: 'Thạch rau câu (90–100g)',
+    vegDishes: ['Bò kho củ cải (100g)', 'Cà nướng mỡ hành (100g)', 'Đậu hủ trắng kho sả (30–40g)', 'Bắp cải xào (60–75g)', 'Canh khoai mỡ (250ml)', 'Cơm trắng (280–300g)'],
+    vegDessert: 'Thạch rau câu (90–100g)',
     isWeighedOk: true
   },
   {
@@ -132,10 +126,10 @@ export const TAM_PHUONG_MENUS: DayShiftMenu[] = [
     dayOfWeek: 'Thứ 3',
     dateStr: '06/10/2026',
     shift: 'Bữa tối',
-    meatDishes: ['Cơm trắng', 'Sườn xào su su cà rốt', 'Đậu hũ nhồi thịt sốt cà', 'Chả cá kho tiêu', 'Rau muống xào tỏi', 'Canh bí xanh'],
-    meatDessert: 'Táo xanh',
-    vegDishes: ['Cơm trắng', 'Sườn xào su củ rốt', 'Đậu hũ kho tương', 'Chả chay kho tiêu', 'Rau muống xào tỏi', 'Canh bí xanh'],
-    vegDessert: 'Táo xanh',
+    meatDishes: ['Gà kho sả ớt (70–75g)', 'Cá điêu hồng chiên xù (60g)', 'Cải thìa luộc (60g)', 'Canh cải thảo tôm khô (150g)', 'Cơm trắng (280–300g)'],
+    meatDessert: 'Thanh long',
+    vegDishes: ['Mì căn xào sả ớt (50g)', 'Tàu hũ ky chiên giòn (40g)', 'Cải thìa luộc (60g)', 'Canh cải thảo chay (150g)', 'Cơm trắng (280–300g)'],
+    vegDessert: 'Thanh long',
     isWeighedOk: true
   },
 
@@ -145,10 +139,10 @@ export const TAM_PHUONG_MENUS: DayShiftMenu[] = [
     dayOfWeek: 'Thứ 4',
     dateStr: '07/10/2026',
     shift: 'Bữa sáng',
-    meatDishes: ['Bánh hỏi thịt heo khìa', 'Rau sống'],
-    meatDessert: 'Chuối',
-    vegDishes: ['Bánh hỏi thịt heo chay khìa', 'Rau sống'],
-    vegDessert: 'Chuối',
+    meatDishes: ['Hủ tiếu Nam Vang (Thịt+tôm 40–45g · Giá, hẹ 25–30g · Hủ tiếu 210–230g)'],
+    meatDessert: '',
+    vegDishes: ['Hủ tiếu chay (Chả chay 40–45g · Giá hẹ 25–30g · Hủ tiếu 210–230g)'],
+    vegDessert: 'Nước sâm',
     isWeighedOk: true
   },
   {
@@ -156,10 +150,10 @@ export const TAM_PHUONG_MENUS: DayShiftMenu[] = [
     dayOfWeek: 'Thứ 4',
     dateStr: '07/10/2026',
     shift: 'Bữa trưa',
-    meatDishes: ['Cơm trắng', 'Cá nục kho tiêu', 'Gà lát xào sả ớt', 'Đậu phộng rang', 'Đậu bắp luộc', 'Canh bầu tôm khô'],
-    meatDessert: 'Chuối',
-    vegDishes: ['Cơm trắng', 'Chả nấm kho tiêu', 'Gà lát xào sả tế', 'Đậu phộng rang', 'Đậu bắp luộc', 'Canh bầu'],
-    vegDessert: 'Chuối',
+    meatDishes: ['Bò xào cần tây (45–50g)', 'Trứng chiên thịt bằm (1 quả)', 'Bí đỏ xào tỏi (60g)', 'Canh mồng tơi cua (150g)', 'Cơm trắng (280–300g)'],
+    meatDessert: 'Táo xanh',
+    vegDishes: ['Mì căn xào nấm (50g)', 'Chả giò chay (50g)', 'Bí đỏ xào (60g)', 'Canh mồng tơi chay (150g)', 'Cơm trắng (280–300g)'],
+    vegDessert: 'Táo xanh',
     isWeighedOk: true
   },
   {
@@ -167,10 +161,10 @@ export const TAM_PHUONG_MENUS: DayShiftMenu[] = [
     dayOfWeek: 'Thứ 4',
     dateStr: '07/10/2026',
     shift: 'Bữa tối',
-    meatDishes: ['Cơm trắng', 'Cá cơm rim tỏi ớt', 'Thịt kho tiêu', 'Cải ngọt xào cà rốt', 'Canh mướp mồng tơi'],
-    meatDessert: 'Thanh long',
-    vegDishes: ['Cơm trắng', 'Cá cơm rim tỏi ớt chay', 'Ruột heo kho tiêu chay', 'Cà tím xào đậu hũ', 'Cải ngọt xào cà rốt', 'Canh mướp mồng tơi'],
-    vegDessert: 'Thanh long',
+    meatDishes: ['Thịt ba chỉ luộc (50–55g)', 'Cá trê kho gừng (60g)', 'Rau muống xào tỏi (60g)', 'Canh bầu nấu tôm (150g)', 'Cơm trắng (280–300g)'],
+    meatDessert: 'Cam sành',
+    vegDishes: ['Đậu hũ chiên sả (60g)', 'Nấm rơm kho tiêu (50g)', 'Rau muống luộc (60g)', 'Canh bầu chay (150g)', 'Cơm trắng (280–300g)'],
+    vegDessert: 'Cam sành',
     isWeighedOk: true
   },
 
@@ -180,10 +174,10 @@ export const TAM_PHUONG_MENUS: DayShiftMenu[] = [
     dayOfWeek: 'Thứ 5',
     dateStr: '08/10/2026',
     shift: 'Bữa sáng',
-    meatDishes: ['Bánh mì sườn lagu', 'Khoai tây cà rốt'],
-    meatDessert: 'Cam sành',
-    vegDishes: ['Sườn chay nấu lagu', 'Bánh mì'],
-    vegDessert: 'Nước sâm',
+    meatDishes: ['Mì Quảng gà (Gà 40–45g · Rau sống 25–30g · Mì Quảng 210–230g)'],
+    meatDessert: '',
+    vegDishes: ['Mì Quảng chay (Đậu hũ 40–45g · Rau sống 25–30g · Mì Quảng 210–230g)'],
+    vegDessert: 'Sữa chua',
     isWeighedOk: true
   },
   {
@@ -191,10 +185,10 @@ export const TAM_PHUONG_MENUS: DayShiftMenu[] = [
     dayOfWeek: 'Thứ 5',
     dateStr: '08/10/2026',
     shift: 'Bữa trưa',
-    meatDishes: ['Cơm trắng', 'Đùi gà chiên nước mắm', 'Đậu hũ sốt cà', 'Đậu phộng rang tỏi ớt', 'Rau củ luộc', 'Canh rau má'],
-    meatDessert: 'Táo xanh',
-    vegDishes: ['Cơm trắng', 'Đùi gà chiên sốt tương cay', 'Đậu hũ sốt tứ xuyên', 'Đậu phộng rang tỏi ớt', 'Rau củ luộc', 'Canh rau má'],
-    vegDessert: 'Táo xanh',
+    meatDishes: ['Sườn non nướng mật ong (50–55g)', 'Cá hú kho tộ (60g)', 'Bắp cải xào cà chua (60g)', 'Canh rong biển thịt bằm (150g)', 'Cơm trắng (280–300g)'],
+    meatDessert: 'Sữa chua',
+    vegDishes: ['Sườn chay nướng (50g)', 'Nấm kho tộ (50g)', 'Bắp cải xào (60g)', 'Canh rong biển chay (150g)', 'Cơm trắng (280–300g)'],
+    vegDessert: 'Sữa chua',
     isWeighedOk: true
   },
   {
@@ -202,10 +196,10 @@ export const TAM_PHUONG_MENUS: DayShiftMenu[] = [
     dayOfWeek: 'Thứ 5',
     dateStr: '08/10/2026',
     shift: 'Bữa tối',
-    meatDishes: ['Cơm trắng', 'Bò xào dưa leo', 'Đậu hũ chiên sốt sả ớt', 'Tôm rim mặn', 'Cà tím xào tỏi', 'Canh rau dền'],
-    meatDessert: 'Ổi',
-    vegDishes: ['Cơm trắng', 'Bò lát xào dưa leo', 'Đậu hũ chiên sốt sả ớt', 'Tôm chay rim mặn', 'Cà tím xào tỏi', 'Canh rau dền'],
-    vegDessert: 'Ổi',
+    meatDishes: ['Thịt kho măng (45–50g)', 'Tôm rim ba chỉ (50g)', 'Su su xào trứng (60g)', 'Canh chua rau muống (150g)', 'Cơm trắng (280–300g)'],
+    meatDessert: 'Chè đậu xanh',
+    vegDishes: ['Đậu hũ kho măng (60g)', 'Mì căn chiên mắm chay (50g)', 'Su su xào (60g)', 'Canh chua chay (150g)', 'Cơm trắng (280–300g)'],
+    vegDessert: 'Chè đậu xanh',
     isWeighedOk: true
   },
 
@@ -215,10 +209,10 @@ export const TAM_PHUONG_MENUS: DayShiftMenu[] = [
     dayOfWeek: 'Thứ 6',
     dateStr: '09/10/2026',
     shift: 'Bữa sáng',
-    meatDishes: ['Bánh ướt chả giò thịt', 'Rau dưa'],
-    meatDessert: 'Quýt',
-    vegDishes: ['Bánh ướt chả giò chay', 'Rau dưa'],
-    vegDessert: 'Quýt',
+    meatDishes: ['Bánh mì chảo xíu mại (Xíu mại 40–45g · Dưa leo 25–30g · Bánh mì 1 ổ)'],
+    meatDessert: '',
+    vegDishes: ['Bánh mì xíu mại chay (Xíu mại chay 40–45g · Dưa leo 25–30g · Bánh mì 1 ổ)'],
+    vegDessert: 'Quýt đường',
     isWeighedOk: true
   },
   {
@@ -226,10 +220,10 @@ export const TAM_PHUONG_MENUS: DayShiftMenu[] = [
     dayOfWeek: 'Thứ 6',
     dateStr: '09/10/2026',
     shift: 'Bữa trưa',
-    meatDishes: ['Cơm trắng', 'Gà lát xào sả tế', 'Cá viên chiên', 'Dưa leo xào', 'Canh cải ngọt'],
-    meatDessert: 'Quýt',
-    vegDishes: ['Cơm trắng', 'Gà lát xào sả tế chay', 'Cá viên rau muống chay', 'Đậu hũ tứ xuyên', 'Dưa leo xào', 'Canh cải ngọt'],
-    vegDessert: 'Quýt',
+    meatDishes: ['Gà chiên nước mắm (65–70g)', 'Cá rô phi chiên giòn (60g)', 'Đậu rồng xào tỏi (60g)', 'Canh bí đỏ đậu phộng (150g)', 'Cơm trắng (280–300g)'],
+    meatDessert: 'Quýt đường',
+    vegDishes: ['Đậu hũ chiên giòn (60g)', 'Chả cá chay sốt cà (50g)', 'Đậu rồng xào (60g)', 'Canh bí đỏ chay (150g)', 'Cơm trắng (280–300g)'],
+    vegDessert: 'Quýt đường',
     isWeighedOk: true
   },
   {
@@ -237,10 +231,10 @@ export const TAM_PHUONG_MENUS: DayShiftMenu[] = [
     dayOfWeek: 'Thứ 6',
     dateStr: '09/10/2026',
     shift: 'Bữa tối',
-    meatDishes: ['Cơm trắng', 'Ruột heo rô ti', 'Sườn non rim mắm ngọt', 'Rau củ luộc', 'Canh rau muống'],
-    meatDessert: 'Thanh long',
-    vegDishes: ['Cơm trắng', 'Ruột heo rô ti chay', 'Đậu hũ kho tương', 'Sườn non rim mắm ngọt', 'Rau củ luộc', 'Canh rau muống'],
-    vegDessert: 'Thanh long',
+    meatDishes: ['Thịt bò xào ớt chuông (45–50g)', 'Cá chim kho tương (60g)', 'Cải thảo xào nấm (60g)', 'Canh súp củ dền (150g)', 'Cơm trắng (280–300g)'],
+    meatDessert: 'Dưa lưới',
+    vegDishes: ['Mì căn xào ớt chuông (50g)', 'Nấm bào ngư kho tương (50g)', 'Cải thảo xào (60g)', 'Canh súp củ dền chay (150g)', 'Cơm trắng (280–300g)'],
+    vegDessert: 'Dưa lưới',
     isWeighedOk: true
   },
 
@@ -250,10 +244,10 @@ export const TAM_PHUONG_MENUS: DayShiftMenu[] = [
     dayOfWeek: 'Thứ 7',
     dateStr: '10/10/2026',
     shift: 'Bữa sáng',
-    meatDishes: ['Mì trứng xào tôm thịt', 'Cải thìa'],
-    meatDessert: 'Chuối',
-    vegDishes: ['Mì trứng xào tôm thịt chay'],
-    vegDessert: 'Chuối',
+    meatDishes: ['Phở bò Hà Nội (Bò 40–45g · Rau thơm, giá 25–30g · Bánh phở 210–230g)'],
+    meatDessert: '',
+    vegDishes: ['Phở chay (Nấm+chả chay 40–45g · Rau thơm 25–30g · Bánh phở 210–230g)'],
+    vegDessert: 'Sữa đậu nành',
     isWeighedOk: true
   },
   {
@@ -261,10 +255,10 @@ export const TAM_PHUONG_MENUS: DayShiftMenu[] = [
     dayOfWeek: 'Thứ 7',
     dateStr: '10/10/2026',
     shift: 'Bữa trưa',
-    meatDishes: ['Cơm trắng', 'Đùi gà rôti', 'Chả cá kho thơm', 'Đậu hũ xào su su', 'Bầu luộc', 'Canh bí xanh'],
-    meatDessert: 'Chuối',
-    vegDishes: ['Cơm trắng', 'Đùi gà rôti chay', 'Chả chay kho thơm', 'Đậu hũ xào su su', 'Bầu luộc', 'Canh bí xanh'],
-    vegDessert: 'Chuối',
+    meatDishes: ['Thịt heo xào chua ngọt (50–55g)', 'Chả cá thác lác sốt cà (60g)', 'Khổ qua xào trứng (60g)', 'Canh cải ngọt thịt bằm (150g)', 'Cơm trắng (280–300g)'],
+    meatDessert: 'Thạch rau câu',
+    vegDishes: ['Sườn chay xào chua ngọt (50g)', 'Chả lụa chay kho tiêu (50g)', 'Khổ qua xào chay (60g)', 'Canh cải ngọt chay (150g)', 'Cơm trắng (280–300g)'],
+    vegDessert: 'Thạch rau câu',
     isWeighedOk: true
   },
   {
@@ -272,10 +266,10 @@ export const TAM_PHUONG_MENUS: DayShiftMenu[] = [
     dayOfWeek: 'Thứ 7',
     dateStr: '10/10/2026',
     shift: 'Bữa tối',
-    meatDishes: ['Cơm trắng', 'Cá cơm kho thơm', 'Ruột heo rim mặn ngọt', 'Đậu phộng rang tỏi', 'Bắp cải luộc', 'Canh cải xanh'],
-    meatDessert: 'Quýt',
-    vegDishes: ['Cơm trắng', 'Cá cơm kho thơm chay', 'Ruột heo rim mặn ngọt', 'Đậu phộng rang tỏi', 'Bắp cải luộc', 'Canh cải xanh'],
-    vegDessert: 'Quýt',
+    meatDishes: ['Mực xào sa tế (50–55g)', 'Cá bạc má chiên tỏi (60g)', 'Rau lang luộc chấm kho quẹt (60g)', 'Canh chua cá điêu hồng (150g)', 'Cơm trắng (280–300g)'],
+    meatDessert: 'Sữa đậu nành',
+    vegDishes: ['Đậu hũ kho dứa (60g)', 'Tàu hũ ky xào sả (40g)', 'Rau lang luộc (60g)', 'Canh chua chay (150g)', 'Cơm trắng (280–300g)'],
+    vegDessert: 'Sữa đậu nành',
     isWeighedOk: true
   },
 
@@ -285,9 +279,9 @@ export const TAM_PHUONG_MENUS: DayShiftMenu[] = [
     dayOfWeek: 'Chủ nhật',
     dateStr: '11/10/2026',
     shift: 'Bữa sáng',
-    meatDishes: ['Nui xào bò lát', 'Hành tây'],
-    meatDessert: 'Sữa tươi',
-    vegDishes: ['Nui xào bò lát chay'],
+    meatDishes: ['Bún bò Huế (Thịt bắp bò 40–45g · Rau bắp chuối 25–30g · Bún 210–230g)'],
+    meatDessert: '',
+    vegDishes: ['Bún bò chay Huế (Bò viên chay 40–45g · Rau bắp chuối 25–30g · Bún 210–230g)'],
     vegDessert: 'Sữa đậu nành',
     isWeighedOk: true
   },
@@ -296,10 +290,10 @@ export const TAM_PHUONG_MENUS: DayShiftMenu[] = [
     dayOfWeek: 'Chủ nhật',
     dateStr: '11/10/2026',
     shift: 'Bữa trưa',
-    meatDishes: ['Cơm trắng', 'Bò xào thơm', 'Đậu hũ chiên sốt cà', 'Cá viên xào rau muống', 'Rau củ luộc', 'Canh khổ qua'],
-    meatDessert: 'Thạch rau câu',
-    vegDishes: ['Cơm trắng', 'Bò xào thơm chay', 'Đậu hũ chiên sốt cà', 'Cá viên xào rau muống chay', 'Rau củ luộc', 'Canh khổ qua'],
-    vegDessert: 'Thạch rau câu',
+    meatDishes: ['Vịt kho gừng (60–65g)', 'Cá trê chiên mắm gừng (60g)', 'Bầu xào trứng (60g)', 'Canh khoai mỡ tôm thịt (150g)', 'Cơm trắng (280–300g)'],
+    meatDessert: 'Dưa hấu',
+    vegDishes: ['Nấm đùi gà kho gừng (50g)', 'Chả lụa chay chiên xù (50g)', 'Bầu xào chay (60g)', 'Canh khoai mỡ chay (150g)', 'Cơm trắng (280–300g)'],
+    vegDessert: 'Dưa hấu',
     isWeighedOk: true
   },
   {
@@ -307,10 +301,10 @@ export const TAM_PHUONG_MENUS: DayShiftMenu[] = [
     dayOfWeek: 'Chủ nhật',
     dateStr: '11/10/2026',
     shift: 'Bữa tối',
-    meatDishes: ['Cơm trắng', 'Tôm xào chua ngọt', 'Sườn non chiên sả', 'Cải thìa xào', 'Canh bí xanh'],
-    meatDessert: 'Ổi',
-    vegDishes: ['Cơm trắng', 'Tôm xào chua ngọt chay', 'Nấm đậu hũ kho tương', 'Sườn non chiên sả chay', 'Cải thìa xào', 'Canh bí xanh'],
-    vegDessert: 'Ổi',
+    meatDishes: ['Thịt heo kho khổ qua (Thịt 45–50g · Khổ qua 40g)', 'Cá basa chiên rim mắm (70–75g)', 'Mắm thái (25–35g)', 'Bắp cải xào (70–80g)', 'Canh cải xanh (250ml)', 'Cơm trắng (280–300g)'],
+    meatDessert: 'Thạch rau câu (90–100g)',
+    vegDishes: ['Đậu hũ kho khổ qua (Thịt 45–50g · Khổ qua 40g)', 'Cá basa chiên rim mắm chay (70–75g)', 'Mắm thái chay (25–35g)', 'Bắp cải xào (70–80g)', 'Canh cải xanh chay (250ml)', 'Cơm trắng (280–300g)'],
+    vegDessert: 'Thạch rau câu (90–100g)',
     isWeighedOk: true
   },
 ];
@@ -1828,6 +1822,25 @@ export const PRELOADED_MENUS: DayShiftMenu[] = [
   ...VINA_STORY_MENUS,
 ].map(cleanMenuObj);
 
+export const normalizeDayOfWeek = (raw: string): string => {
+  const s = String(raw || '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase();
+  if (s.includes('2') || s.includes('hai')) return 'Thứ 2';
+  if (s.includes('3') || s.includes('ba')) return 'Thứ 3';
+  if (s.includes('4') || s.includes('tu')) return 'Thứ 4';
+  if (s.includes('5') || s.includes('nam')) return 'Thứ 5';
+  if (s.includes('6') || s.includes('sau')) return 'Thứ 6';
+  if (s.includes('7') || s.includes('bay')) return 'Thứ 7';
+  if (s.includes('chu') || s.includes('nhat') || s.includes('cn')) return 'Chủ nhật';
+  return raw || 'Thứ 2';
+};
+
+export const normalizeShift = (raw: string): MealShift => {
+  const s = String(raw || '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase();
+  if (s.includes('sang')) return 'Bữa sáng';
+  if (s.includes('trua')) return 'Bữa trưa';
+  return 'Bữa tối';
+};
+
 /**
  * Tra cứu thực đơn chuẩn xác tuyệt đối theo NCC, Thứ và Ca ăn.
  * TUYỆT ĐỐI KHÔNG GỘP CHUNG, KHÔNG LẤY NHẦM MÓN CỦA NCC NÀY SANG NCC KHÁC.
@@ -1839,47 +1852,58 @@ export const getMenuForVendorAndShift = (
   shift: MealShift = 'Bữa sáng'
 ): DayShiftMenu => {
   const safeList = Array.isArray(menus) ? menus : [];
+  const normTargetDay = normalizeDayOfWeek(dayOfWeek);
+  const normTargetShift = normalizeShift(shift);
 
-  // 1. Kiểm tra chính xác trong danh sách thực đơn hiện tại của người dùng (state)
-  const exactInCurrent = safeList.find(
-    (m) => m && m.vendorId === vendorId && m.dayOfWeek === dayOfWeek && m.shift === shift
+  // 1. Check match in user state (exact or normalized)
+  const matchInCurrent = safeList.find(
+    (m) =>
+      m &&
+      m.vendorId === vendorId &&
+      normalizeDayOfWeek(m.dayOfWeek) === normTargetDay &&
+      normalizeShift(m.shift) === normTargetShift
   );
-  if (exactInCurrent) {
-    return cleanMenuObj(exactInCurrent);
+  if (matchInCurrent) {
+    return cleanMenuObj(matchInCurrent);
   }
 
-  // 2. Kiểm tra chính xác trong cơ sở dữ liệu mẫu chuẩn PRELOADED_MENUS của đúng vendorId đó
-  const exactInPreloaded = PRELOADED_MENUS.find(
-    (m) => m && m.vendorId === vendorId && m.dayOfWeek === dayOfWeek && m.shift === shift
+  // 2. If the user has synced/loaded ANY menus for this vendor, DO NOT fallback to PRELOADED_MENUS
+  const hasUserMenusForVendor = safeList.some((m) => m && m.vendorId === vendorId);
+  if (hasUserMenusForVendor) {
+    return {
+      vendorId,
+      dayOfWeek: normTargetDay,
+      dateStr: '',
+      shift: normTargetShift,
+      meatDishes: [],
+      meatDessert: '',
+      vegDishes: [],
+      vegDessert: '',
+      isWeighedOk: true,
+    };
+  }
+
+  // 3. Fallback to PRELOADED_MENUS only before any user file upload occurs
+  const matchInPreloaded = PRELOADED_MENUS.find(
+    (m) =>
+      m &&
+      m.vendorId === vendorId &&
+      normalizeDayOfWeek(m.dayOfWeek) === normTargetDay &&
+      normalizeShift(m.shift) === normTargetShift
   );
-  if (exactInPreloaded) {
-    return cleanMenuObj(exactInPreloaded);
+  if (matchInPreloaded) {
+    return cleanMenuObj(matchInPreloaded);
   }
 
-  // 3. Fallback chỉ trong phạm vi của đúng nhà cung cấp đó (cùng ca ăn)
-  const vendorShift = PRELOADED_MENUS.find(
-    (m) => m && m.vendorId === vendorId && m.shift === shift
-  );
-  if (vendorShift) {
-    return cleanMenuObj(vendorShift);
-  }
-
-  // 4. Fallback chỉ trong phạm vi của đúng nhà cung cấp đó (bất kỳ ca ăn)
-  const vendorAny = PRELOADED_MENUS.find((m) => m && m.vendorId === vendorId);
-  if (vendorAny) {
-    return cleanMenuObj(vendorAny);
-  }
-
-  // 5. Nếu nhà cung cấp hoàn toàn mới, trả về khung rỗng của đúng vendorId đó
   return {
     vendorId,
-    dayOfWeek,
+    dayOfWeek: normTargetDay,
     dateStr: '',
-    shift,
-    meatDishes: ['Cơm trắng', 'Món mặn theo ca'],
-    meatDessert: 'Trái cây theo mùa',
-    vegDishes: ['Cơm trắng', 'Món chay theo ca'],
-    vegDessert: 'Trái cây theo mùa',
+    shift: normTargetShift,
+    meatDishes: [],
+    meatDessert: '',
+    vegDishes: [],
+    vegDessert: '',
     isWeighedOk: true,
   };
 };

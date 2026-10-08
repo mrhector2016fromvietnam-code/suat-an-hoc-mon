@@ -229,7 +229,8 @@ export const PortionInputTable: React.FC<PortionInputTableProps> = ({
       setUploadStatusMsg(null);
       setExtractedPreviewData(null);
 
-      if (file.type.startsWith('image/')) {
+      const isImg = /\.(png|jpg|jpeg|webp)$/i.test(file.name);
+      if (isImg) {
         const reader = new FileReader();
         reader.onload = (event) => {
           setImagePreviewUrl(event.target?.result as string);
@@ -252,7 +253,8 @@ export const PortionInputTable: React.FC<PortionInputTableProps> = ({
       setUploadStatusMsg(null);
       setExtractedPreviewData(null);
 
-      if (file.type.startsWith('image/')) {
+      const isImg = /\.(png|jpg|jpeg|webp)$/i.test(file.name);
+      if (isImg) {
         const reader = new FileReader();
         reader.onload = (event) => {
           setImagePreviewUrl(event.target?.result as string);
@@ -482,7 +484,7 @@ export const PortionInputTable: React.FC<PortionInputTableProps> = ({
               <input
                 ref={fileInputRef}
                 type="file"
-                accept="image/*,application/pdf"
+                accept=".xlsx,.xls,.ods,.csv,.png,.jpg,.jpeg,.webp,image/*,application/pdf"
                 onChange={handleFileChange}
                 className="hidden"
                 id="portion-file-upload"
