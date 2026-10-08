@@ -15,7 +15,7 @@ import { DEFAULT_VENDORS, PRELOADED_MENUS, DAYS_OF_WEEK, getMenuForVendorAndShif
 import { DeleteMenuModal } from './components/DeleteMenuModal';
 import { VendorPortionRow, MealShift, DayShiftMenu } from './types/report';
 import { verifyReportMatchesMenu } from './utils/reportVerifier';
-import { FileText, Sparkles, Check, RefreshCw, AlertCircle, Building2, Utensils, CheckCircle2, Trash2 } from 'lucide-react';
+import { FileText, Sparkles, Check, RefreshCw, AlertCircle, Building2, Utensils, CheckCircle2, Trash2, Search } from 'lucide-react';
 
 // Cache key v7 strictly separates all 7 vendors with distinct 21 shifts per vendor
 const STORAGE_KEY_MENUS = 'vinhomes_weekly_menus_cache_v7_clean';
@@ -57,6 +57,58 @@ export default function App() {
     } catch (e) {}
     return PRELOADED_MENUS;
   });
+
+  // Search state for dishes and suppliers
+  const [searchQuery, setSearchQuery] = useState('');
+  const [isSearchFocused, setIsSearchFocused] = useState(false);
+
+  const searchMatches = React.useMemo(() => {
+    if (!searchQuery.trim()) return [];
+    const q = searchQuery.toLowerCase().trim();
+    const results: { vendorId: string; vendorName: string; dayOfWeek: string; shift: MealShift; matchedText: string; type: 'dish' | 'vendor' }[] = [];
+
+    vendors.forEach(v => {
+      if (v.name.toLowerCase().includes(q)) {
+        results.push({
+          vendorId: v.id,
+          vendorName: v.name,
+          dayOfWeek: 'Thứ 2',
+          shift: 'Bữa sáng',
+          matchedText: `Nhà cung cấp: ${v.name}`,
+          type: 'vendor'
+        });
+      }
+    });
+
+    menusList.forEach(m => {
+      const vObj = vendors.find(v => v.id === m.vendorId);
+      const vName = String(vObj?.name || m.vendorId || 'Nhà cung cấp');
+      const allDishes = [
+        ...(m.meatDishes || []),
+        ...(m.vegDishes || []),
+        m.meatDessert || '',
+        m.vegDessert || ''
+      ].filter(Boolean);
+
+      for (const d of allDishes) {
+        if (d.toLowerCase().includes(q)) {
+          const dayW: string = m.dayOfWeek || 'Thứ 2';
+          const mealSh: MealShift = m.shift || 'Bữa sáng';
+          results.push({
+            vendorId: String(m.vendorId || 'tam-phuong'),
+            vendorName: vName,
+            dayOfWeek: dayW,
+            shift: mealSh,
+            matchedText: d,
+            type: 'dish'
+          });
+          if (results.length >= 30) break;
+        }
+      }
+    });
+
+    return results;
+  }, [searchQuery, menusList, vendors]);
 
   // Save changes to localStorage
   useEffect(() => {
@@ -632,6 +684,64 @@ export default function App() {
                     <Sparkles className="w-3.5 h-3.5 text-teal-500" />
                     <span>{isMenuUploadOpen ? 'Đóng tải tệp' : 'Tải tệp menu mới'}</span>
                   </button>
+
+                  {/* Search Input for Dishes or Suppliers */}
+                  <div className="relative min-w-[200px] sm:min-w-[240px]">
+                    <div className="relative flex items-center">
+                      <Search className="absolute left-2.5 w-3.5 h-3.5 text-neutral-400 pointer-events-none" />
+                      <input
+                        type="text"
+                        value={searchQuery}
+                        onChange={(e) => setSearchQuery(e.target.value)}
+                        onFocus={() => setIsSearchFocused(true)}
+                        onBlur={() => setTimeout(() => setIsSearchFocused(false), 250)}
+                        placeholder="Tìm món ăn, nhà cung cấp..."
+                        className="w-full pl-8 pr-3 py-2 bg-neutral-50 hover:bg-white focus:bg-white border border-neutral-300 focus:border-teal-600 rounded-xl text-xs text-neutral-800 placeholder-neutral-400 outline-none transition-all shadow-xs"
+                      />
+                      {searchQuery && (
+                        <button
+                          type="button"
+                          onClick={() => setSearchQuery('')}
+                          className="absolute right-2.5 text-neutral-400 hover:text-neutral-600 text-xs font-bold"
+                        >
+                          ×
+                        </button>
+                      )}
+                    </div>
+
+                    {/* Search Results Dropdown */}
+                    {isSearchFocused && searchMatches.length > 0 && (
+                      <div className="absolute right-0 mt-1.5 w-80 max-h-96 overflow-y-auto bg-white rounded-2xl border border-neutral-200 shadow-xl z-50 p-2 divide-y divide-neutral-100 animate-fade-in">
+                        <div className="px-3 py-1.5 text-[10px] font-bold text-neutral-400 uppercase tracking-wider">
+                          Kết quả tìm kiếm ({searchMatches.length})
+                        </div>
+                        {searchMatches.map((res, idx) => (
+                          <div
+                            key={idx}
+                            onMouseDown={() => {
+                              setSelectedVendorIds([res.vendorId]);
+                              setCurrentDayOfWeek(res.dayOfWeek);
+                              setCurrentShift(res.shift);
+                              setCurrentTab('report');
+                              setSearchQuery('');
+                              setIsSearchFocused(false);
+                            }}
+                            className="p-2.5 hover:bg-teal-50 rounded-xl cursor-pointer transition-colors"
+                          >
+                            <div className="flex items-center justify-between gap-2">
+                              <span className="text-xs font-bold text-teal-900">{res.vendorName}</span>
+                              <span className="text-[10px] font-medium px-2 py-0.5 rounded-md bg-neutral-100 text-neutral-600">
+                                {res.dayOfWeek} · {res.shift}
+                              </span>
+                            </div>
+                            <p className="text-xs text-neutral-700 mt-1 line-clamp-1 font-medium">
+                              {res.matchedText}
+                            </p>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </div>
                 </div>
               </div>
 
